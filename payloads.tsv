@@ -1,15 +1,18 @@
-# MVP manifest — 2 live envs, 3 installer payloads.  Everything here was
-# already pulled by the earlier staging run, so no new downloads required.
+# MVP manifest — 1 live env, 3 installer payloads.  All built from upstream
+# ghcr.io bootc images directly; no local dakota-iso dependency.
 #
 # Columns: ref<TAB>name<TAB>desc<TAB>filesystem<TAB>composefs<TAB>family<TAB>live
 # live=true → bootable from the systemd-boot menu.
 #
-# Once the MVP boots end-to-end, expand back to the full manifest in plan.md.
+# Dakota is excluded as a live env for now: it's GNOME OS / freedesktop-sdk
+# based and has no dnf, so the simple "dnf install dracut-live; dracut" path
+# we use for ublue images doesn't apply.  Dakota stays in the manifest as an
+# *installable* payload.
 
-# Live envs (bootable):
-ghcr.io/projectbluefin/dakota:latest	Dakota	Project Bluefin prototype, GNOME OS	btrfs	true	dakota	true
+# Live env (bootable):
 ghcr.io/ublue-os/bluefin:latest	Bluefin	Cloud-native dev workstation, GNOME	btrfs	true	bluefin	true
 
-# Installer-only payloads (selectable from any live env's installer):
+# Installer-only payloads:
+ghcr.io/projectbluefin/dakota:latest	Dakota	Project Bluefin prototype, GNOME OS	btrfs	true	dakota	false
 ghcr.io/ublue-os/bazzite:latest	Bazzite	Gaming, KDE (AMD/Intel)	btrfs	true	bazzite	false
 ghcr.io/ublue-os/bazzite-nvidia:latest	Bazzite NVIDIA	Gaming, KDE (NVIDIA)	btrfs	true	bazzite	false

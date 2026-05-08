@@ -24,10 +24,7 @@ FAMILY="${2:?...}"
 REF="${3:?...}"
 OUT="${4:?...}"
 
-case "$FAMILY" in
-    dakota) CF=live/Containerfile.dakota ;;
-    *)      CF=live/Containerfile.ublue ;;
-esac
+CF=live/Containerfile.ublue
 
 # Compression preset (override via SUPERISO_COMPRESSION env: "fast" | "release")
 case "${SUPERISO_COMPRESSION:-fast}" in

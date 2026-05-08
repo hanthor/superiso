@@ -17,7 +17,6 @@
 #   output_dir=...                 override output location
 #   persist_mb=8192                size of persistence partition in disk image
 
-dakota_dir   := "../dakota-iso"
 output_dir   := "output"
 payloads     := "payloads.tsv"
 compression  := "fast"
@@ -26,17 +25,7 @@ persist_mb   := "8192"
 default: iso
 
 # Convenience target for end-to-end build.
-all: dakota-base stage live-envs store-sqfs iso
-
-# Build dakota-installer if missing (delegates to dakota-iso's justfile).
-dakota-base:
-    #!/usr/bin/bash
-    set -euo pipefail
-    if podman image exists localhost/dakota-installer; then
-        echo ">>> localhost/dakota-installer already present"
-        exit 0
-    fi
-    cd {{dakota_dir}} && just container dakota
+all: stage live-envs store-sqfs iso
 
 # Pull every payload into the shared overlay-driver containers-storage.
 # Idempotent: skopeo skips images already present at the same digest.
@@ -47,12 +36,13 @@ stage:
     OUT=$(realpath {{output_dir}})
     CS_STAGING="${OUT}/cs-staging"
     mkdir -p "${CS_STAGING}"
-    # Pick a live image to host skopeo (must already be built); the choice
-    # doesn't matter beyond carrying the right containers/storage version.
+    # Skopeo runs inside a container so the tar-split format it writes
+    # matches the containers/storage version that will read it at install
+    # time.  Prefer a previously-built superiso-live-* image; otherwise any
+    # ublue image we've already pulled; finally fall back to skopeo:stable.
     HOST_IMG=$(podman images \
-        | awk '/^localhost\/(superiso-live-|dakota-installer)/ {print $1":"$2; exit}')
+        | awk '/^localhost\/superiso-live-/ {print $1":"$2; exit}')
     if [[ -z "${HOST_IMG}" ]]; then
-        # Bootstrap: use any bootc-aware image we already have.
         HOST_IMG=$(podman images \
             | awk '/ublue-os\/(bazzite|bluefin|aurora)/ {print $1":"$2; exit}')
     fi

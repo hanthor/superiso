@@ -33,7 +33,9 @@ ARG FAMILY
 # rebuild a non-hostonly initramfs with dmsquash-live so it can find and
 # mount the live squashfs from the ISO.
 RUN set -ex; \
-    dnf install -y --setopt=install_weak_deps=False dracut-live; \
+    dnf install -y --setopt=install_weak_deps=False \
+        dracut-live \
+        systemd-boot-unsigned; \
     kernel=$(ls /usr/lib/modules | sort -V | tail -1); \
     echo "Building dmsquash-live initramfs for kernel ${kernel}"; \
     dracut --force --no-hostonly --zstd \
@@ -41,6 +43,7 @@ RUN set -ex; \
         --add-drivers 'squashfs overlay loop iso9660 sr_mod cdrom sd_mod usb-storage uas xhci-pci exfat vfat fat ntfs3 ext4 btrfs' \
         "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"; \
     ls -lh "/usr/lib/modules/${kernel}/initramfs.img"; \
+    test -f /usr/lib/systemd/boot/efi/systemd-bootx64.efi; \
     dnf clean all
 
 # ── Family marker ────────────────────────────────────────────────────────────

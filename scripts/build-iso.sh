@@ -76,8 +76,10 @@ cp "${EFI_SRC}" "${ESP_STAGING}/${EFI_DEST}"
 
 # ── Loader config + per-family entries + per-family kernel/initramfs ────────
 DEFAULT_FAMILY="${FAMILIES[0]}"
-# Prefer dakota or bluefin as default if present, otherwise first.
-for d in dakota bluefin bazzite aurora; do
+# Prefer bluefin/aurora/bazzite as default (ublue images with reliable
+# dnf-built dmsquash-live initramfs).  Dakota live builds are out of MVP
+# scope (GNOME OS / no dnf).
+for d in bluefin aurora bazzite dakota; do
     [[ -d "${OUT}/live/${d}" ]] && { DEFAULT_FAMILY="$d"; break; }
 done
 
@@ -87,7 +89,15 @@ default ${DEFAULT_FAMILY}.conf
 console-mode max
 EOF
 
-CMDLINE_BASE="root=live:CDLABEL=${LABEL} rd.live.image rd.live.dir=LiveOS rd.live.overlay=LABEL=${PERSIST_LABEL} rd.live.overlay.overlayfs=1 enforcing=0 rd.shell rd.debug systemd.log_target=console console=ttyS0,115200n8 console=ttyAMA0,115200n8"
+# Default cmdline: no persistence overlay.  dmsquash-live prompts the user
+# to "Press [Enter] to continue" if rd.live.overlay= is set but the labeled
+# partition is missing (which is the case when booting the pure ISO from
+# a CD-ROM or a USB without persistence).  Default tmpfs overlay = no prompt.
+CMDLINE_BASE="root=live:CDLABEL=${LABEL} rd.live.image rd.live.dir=LiveOS rd.live.overlay.overlayfs=1 enforcing=0 quiet console=ttyS0,115200n8 console=ttyAMA0,115200n8"
+
+# Persistence-enabled cmdline (used by the persistent-disk variant of each
+# loader entry, only meaningful when the SUPERISOPST partition is present).
+CMDLINE_PERSIST="${CMDLINE_BASE} rd.live.overlay=LABEL=${PERSIST_LABEL}"
 
 for fam in "${FAMILIES[@]}"; do
     src="${OUT}/live/${fam}"
@@ -104,7 +114,10 @@ for fam in "${FAMILIES[@]}"; do
     cp "${src}/vmlinuz"       "${ISO_ROOT}/images/pxeboot/${fam}/vmlinuz"
     cp "${src}/initramfs.img" "${ISO_ROOT}/images/pxeboot/${fam}/initrd.img"
 
-    # Loader entry
+    # Loader entries — two per family: one for ephemeral (tmpfs overlay)
+    # and one that opts into the SUPERISOPST persistence partition.  The
+    # persistence variant only "works" when booted from a USB that includes
+    # the partition (built via `just disk`); on a pure ISO it'll prompt.
     title="Super-ISO Live — ${fam}"
     [[ "$fam" == "$DEFAULT_FAMILY" ]] && title="${title} (default)"
     cat > "${ESP_STAGING}/loader/entries/${fam}.conf" <<EOF
@@ -112,6 +125,12 @@ title   ${title}
 linux   /images/pxeboot/${fam}/vmlinuz
 initrd  /images/pxeboot/${fam}/initrd.img
 options ${CMDLINE_BASE} rd.live.squashimg=${fam}.rootfs.sfs superiso.family=${fam}
+EOF
+    cat > "${ESP_STAGING}/loader/entries/${fam}-persist.conf" <<EOF
+title   Super-ISO Live — ${fam} (persistent)
+linux   /images/pxeboot/${fam}/vmlinuz
+initrd  /images/pxeboot/${fam}/initrd.img
+options ${CMDLINE_PERSIST} rd.live.squashimg=${fam}.rootfs.sfs superiso.family=${fam}
 EOF
 
     # Rootfs squashfs in /LiveOS
@@ -158,6 +177,7 @@ mcopy -i "${ESP_IMG}" "${ESP_STAGING}/loader/loader.conf"   ::/loader/loader.con
 for fam in "${FAMILIES[@]}"; do
     mmd -i "${ESP_IMG}" "::/images/pxeboot/${fam}"
     mcopy -i "${ESP_IMG}" "${ESP_STAGING}/loader/entries/${fam}.conf"            "::/loader/entries/${fam}.conf"
+    mcopy -i "${ESP_IMG}" "${ESP_STAGING}/loader/entries/${fam}-persist.conf"    "::/loader/entries/${fam}-persist.conf"
     mcopy -i "${ESP_IMG}" "${ESP_STAGING}/images/pxeboot/${fam}/vmlinuz"         "::/images/pxeboot/${fam}/vmlinuz"
     mcopy -i "${ESP_IMG}" "${ESP_STAGING}/images/pxeboot/${fam}/initrd.img"      "::/images/pxeboot/${fam}/initrd.img"
 done
