@@ -1,0 +1,59 @@
+#!/usr/bin/bash
+# superiso-install — minimal TUI wrapper around `bootc install to-disk`.
+#
+# Reads /etc/bootc-installer/images.json, lets the user pick an image, then
+# invokes bootc install pulling from the locally-mounted containers-storage.
+# This is a fallback for when the GUI bootc-installer flatpak isn't running.
+
+set -euo pipefail
+
+CFG=/etc/bootc-installer/images.json
+[[ -r "$CFG" ]] || { echo "ERROR: $CFG missing — was this image built by superiso?" >&2; exit 1; }
+command -v jq >/dev/null || { echo "ERROR: jq missing" >&2; exit 1; }
+
+mapfile -t REFS < <(jq -r '.images[] | "\(.imgref)\t\(.name)\t\(.desc)\t\(.filesystem)\t\(.composefs)\t\(.family)"' "$CFG")
+DEFAULT_REF=$(jq -r '.default_image' "$CFG")
+DEFAULT_FAMILY=$(jq -r '.default_family // ""' "$CFG")
+
+echo "==================================================="
+echo " Super-ISO installer (booted family: ${DEFAULT_FAMILY:-?})"
+echo "==================================================="
+
+i=1
+default_idx=1
+for line in "${REFS[@]}"; do
+    IFS=$'\t' read -r ref name desc fs cfs fam <<< "$line"
+    [[ "$ref" == "$DEFAULT_REF" ]] && default_idx=$i
+    marker="  "
+    [[ "$ref" == "$DEFAULT_REF" ]] && marker="* "
+    printf '%s%2d) %-22s %s\n' "$marker" "$i" "$name" "$desc"
+    i=$((i+1))
+done
+echo
+read -rp "Select image [${default_idx}]: " choice
+choice=${choice:-$default_idx}
+sel=${REFS[$((choice-1))]}
+IFS=$'\t' read -r ref name desc fs cfs fam <<< "$sel"
+
+echo
+echo "Block devices:"
+lsblk -dn -o NAME,SIZE,MODEL | awk '{printf "  /dev/%s\n", $0}'
+echo
+read -rp "Target device (e.g. /dev/nvme0n1): " disk
+[[ -b "$disk" ]] || { echo "Not a block device: $disk" >&2; exit 1; }
+
+CFS_FLAG=()
+[[ "$cfs" == "true" ]] && CFS_FLAG=(--composefs-native)
+
+echo
+echo ">>> Installing ${ref} → ${disk}"
+echo ">>>   filesystem=${fs}  composefs=${cfs}"
+sleep 2
+
+exec sudo bootc install to-disk \
+    --source-imgref "containers-storage:${ref}" \
+    --target-imgref "docker://${ref}" \
+    --filesystem "${fs}" \
+    "${CFS_FLAG[@]}" \
+    --wipe \
+    "${disk}"

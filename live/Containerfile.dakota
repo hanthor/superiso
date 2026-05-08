@@ -1,0 +1,23 @@
+# Dakota → super-iso live env transform.
+#
+# Dakota's live image (localhost/dakota-installer, built by dakota-iso) already
+# carries a dmsquash-live initramfs (built via dakota's three-stage Debian
+# builder, since GNOME OS has no dracut natively).  We only layer the
+# super-iso-specific bits: family marker, shared-store mount unit, and the
+# multi-image installer config.
+
+ARG BASE_IMAGE=localhost/dakota-installer
+FROM ${BASE_IMAGE}
+
+ARG FAMILY=dakota
+
+RUN mkdir -p /etc/superiso && echo "${FAMILY}" > /etc/superiso/family
+
+COPY src/etc/bootc-installer/images.${FAMILY}.json /etc/bootc-installer/images.json
+COPY src/systemd/superiso-store.mount /etc/systemd/system/var-lib-containers-storage.mount
+RUN systemctl enable var-lib-containers-storage.mount
+
+COPY src/superiso-install /usr/local/bin/superiso-install
+RUN chmod +x /usr/local/bin/superiso-install
+
+RUN echo "superiso-live-${FAMILY}" > /etc/hostname

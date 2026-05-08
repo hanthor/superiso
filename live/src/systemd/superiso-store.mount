@@ -1,0 +1,16 @@
+[Unit]
+Description=Super-ISO shared containers-storage (loop-mounted from live media)
+DefaultDependencies=no
+# dmsquash-live mounts the live media at /run/initramfs/live before we run.
+After=systemd-remount-fs.service local-fs-pre.target
+Before=local-fs.target
+ConditionPathExists=/run/initramfs/live/LiveOS/store.squashfs.img
+
+[Mount]
+What=/run/initramfs/live/LiveOS/store.squashfs.img
+Where=/var/lib/containers/storage
+Type=squashfs
+Options=loop,ro,nodev
+
+[Install]
+WantedBy=local-fs.target

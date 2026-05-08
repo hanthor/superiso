@@ -1,0 +1,15 @@
+# MVP manifest — 2 live envs, 3 installer payloads.  Everything here was
+# already pulled by the earlier staging run, so no new downloads required.
+#
+# Columns: ref<TAB>name<TAB>desc<TAB>filesystem<TAB>composefs<TAB>family<TAB>live
+# live=true → bootable from the systemd-boot menu.
+#
+# Once the MVP boots end-to-end, expand back to the full manifest in plan.md.
+
+# Live envs (bootable):
+ghcr.io/projectbluefin/dakota:latest	Dakota	Project Bluefin prototype, GNOME OS	btrfs	true	dakota	true
+ghcr.io/ublue-os/bluefin:latest	Bluefin	Cloud-native dev workstation, GNOME	btrfs	true	bluefin	true
+
+# Installer-only payloads (selectable from any live env's installer):
+ghcr.io/ublue-os/bazzite:latest	Bazzite	Gaming, KDE (AMD/Intel)	btrfs	true	bazzite	false
+ghcr.io/ublue-os/bazzite-nvidia:latest	Bazzite NVIDIA	Gaming, KDE (NVIDIA)	btrfs	true	bazzite	false

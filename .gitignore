@@ -1,0 +1,11 @@
+output/
+live/src/etc/bootc-installer/images.*.json
+*.iso
+*.sfs
+*.img
+*.tar
+/tmp/
+build*.log
+.claude/
+kernel/
+live/src/etc/bootc-installer/images.json

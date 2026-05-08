@@ -1,0 +1,74 @@
+# Generic ublue → super-iso live env transform.
+#
+# Takes any Fedora-bootc-derived image (bazzite-nvidia, bluefin-nvidia,
+# aurora-nvidia) and produces a dmsquash-live-bootable variant by:
+#   1. Rebuilding the in-image initramfs with the dmsquash-live module
+#   2. Dropping in the multi-image installer config + family marker
+#   3. Adding the systemd unit that loop-mounts the shared store squashfs
+#
+# Build args:
+#   BASE_IMAGE   the OCI ref of the source bootc image (must contain dracut +
+#                kernel modules at /usr/lib/modules/<kver>)
+#   FAMILY       short family slug used by the installer to pre-select the
+#                booted family in images.json (e.g. "bazzite", "bluefin",
+#                "aurora")
+#
+# Usage (called by scripts/build-live-env.sh):
+#   podman build \
+#       --build-arg BASE_IMAGE=ghcr.io/ublue-os/bazzite-nvidia:latest \
+#       --build-arg FAMILY=bazzite \
+#       -t localhost/superiso-live-bazzite \
+#       -f live/Containerfile.ublue live
+
+ARG BASE_IMAGE
+ARG FAMILY=unknown
+
+FROM ${BASE_IMAGE}
+
+ARG FAMILY
+
+# ── Live initramfs ───────────────────────────────────────────────────────────
+# ublue images carry dracut but not the dracut-live module by default
+# (bootc deployments don't normally need live boot).  Install it, then
+# rebuild a non-hostonly initramfs with dmsquash-live so it can find and
+# mount the live squashfs from the ISO.
+RUN set -ex; \
+    dnf install -y --setopt=install_weak_deps=False dracut-live; \
+    kernel=$(ls /usr/lib/modules | sort -V | tail -1); \
+    echo "Building dmsquash-live initramfs for kernel ${kernel}"; \
+    dracut --force --no-hostonly --zstd \
+        --add 'dmsquash-live' \
+        --add-drivers 'squashfs overlay loop iso9660 sr_mod cdrom sd_mod usb-storage uas xhci-pci exfat vfat fat ntfs3 ext4 btrfs' \
+        "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"; \
+    ls -lh "/usr/lib/modules/${kernel}/initramfs.img"; \
+    dnf clean all
+
+# ── Family marker ────────────────────────────────────────────────────────────
+RUN mkdir -p /etc/superiso && echo "${FAMILY}" > /etc/superiso/family
+
+# ── Installer config ─────────────────────────────────────────────────────────
+# images.json is rendered separately per family (default_family preselects
+# the booted family in the picker).
+COPY src/etc/bootc-installer/images.${FAMILY}.json /etc/bootc-installer/images.json
+
+# ── Shared-store mount unit ──────────────────────────────────────────────────
+# After dmsquash-live mounts the live media at /run/initramfs/live,
+# loop-mount the shared store squashfs at /var/lib/containers/storage so
+# every embedded image is available offline to bootc install.
+COPY src/systemd/superiso-store.mount  /etc/systemd/system/var-lib-containers-storage.mount
+RUN systemctl enable var-lib-containers-storage.mount
+
+# ── Persistence-partition opt-in ─────────────────────────────────────────────
+# The persistence partition (LABEL=SUPERISOPST) is mounted by dmsquash-live
+# via rd.live.overlay=LABEL=SUPERISOPST in the kernel cmdline; nothing to do
+# in the image itself.
+
+# ── Hostname / motd ──────────────────────────────────────────────────────────
+RUN echo "superiso-live-${FAMILY}" > /etc/hostname && \
+    printf '\nSuper-ISO live (%s family)\nRun `superiso-install` to launch the installer.\n\n' \
+        "${FAMILY}" > /etc/motd
+
+# ── CLI installer fallback ───────────────────────────────────────────────────
+# Until the bootc-installer flatpak is integrated, ship a small TUI script.
+COPY src/superiso-install /usr/local/bin/superiso-install
+RUN chmod +x /usr/local/bin/superiso-install
