@@ -56,10 +56,20 @@ COPY src/etc/bootc-installer/images.${FAMILY}.json /etc/bootc-installer/images.j
 
 # ── Shared-store mount unit ──────────────────────────────────────────────────
 # After dmsquash-live mounts the live media at /run/initramfs/live,
-# loop-mount the shared store squashfs at /var/lib/containers/storage so
-# every embedded image is available offline to bootc install.
-COPY src/systemd/superiso-store.mount  /etc/systemd/system/var-lib-containers-storage.mount
-RUN systemctl enable var-lib-containers-storage.mount
+# loop-mount the shared store squashfs at /var/lib/superiso-store (read-only)
+# and register it as an additional image store so bootc install can resolve
+# `containers-storage:` refs offline without needing write access to the
+# squashfs's storage.lock.
+COPY src/systemd/superiso-store.mount /etc/systemd/system/superiso-store.mount.in
+RUN set -ex; \
+    # systemd-escape: /var/lib/superiso-store → var-lib-superiso\x2dstore
+    UNIT="$(systemd-escape --path /var/lib/superiso-store).mount"; \
+    mv /etc/systemd/system/superiso-store.mount.in "/etc/systemd/system/${UNIT}"; \
+    mkdir -p /etc/containers; \
+    printf '[storage]\ndriver = "overlay"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n[storage.options]\nadditionalimagestores = ["/var/lib/superiso-store"]\n' \
+        > /etc/containers/storage.conf; \
+    mkdir -p /var/lib/superiso-store; \
+    systemctl enable "${UNIT}"
 
 # ── Persistence-partition opt-in ─────────────────────────────────────────────
 # The persistence partition (LABEL=SUPERISOPST) is mounted by dmsquash-live
@@ -75,3 +85,22 @@ RUN echo "superiso-live-${FAMILY}" > /etc/hostname && \
 # Until the bootc-installer flatpak is integrated, ship a small TUI script.
 COPY src/superiso-install /usr/local/bin/superiso-install
 RUN chmod +x /usr/local/bin/superiso-install
+
+# ── Live user (autologin, passwordless sudo, SSH enabled) ───────────────────
+# `liveuser` exists only on the live media; not propagated to installed
+# systems (bootc install creates the target's accounts).  Password = "live"
+# for SSH-from-host testing; autologin means GDM/serial console drops you
+# straight into a shell without prompts.
+RUN set -ex; \
+    groupadd -f -g 1000 liveuser; \
+    useradd -m -u 1000 -g 1000 -G wheel -s /bin/bash liveuser; \
+    echo "liveuser:live" | chpasswd; \
+    echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser; \
+    chmod 440 /etc/sudoers.d/liveuser; \
+    mkdir -p /etc/systemd/system/getty@tty1.service.d; \
+    printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I $TERM\n' \
+        > /etc/systemd/system/getty@tty1.service.d/autologin.conf; \
+    mkdir -p /etc/systemd/system/serial-getty@ttyS0.service.d; \
+    printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --keep-baud 115200,38400,9600 %%I $TERM\n' \
+        > /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf; \
+    systemctl enable sshd

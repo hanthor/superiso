@@ -7,8 +7,13 @@ Before=local-fs.target
 ConditionPathExists=/run/initramfs/live/LiveOS/store.squashfs.img
 
 [Mount]
+# Read-only mount path.  Exposed to containers-storage as an
+# `additionalimagestore` (read-only) via /etc/containers/storage.conf so
+# bootc install can find images here without needing to acquire write
+# locks on the squashfs.  The primary store stays at the default
+# /var/lib/containers/storage (writable, tmpfs-backed in the live overlay).
 What=/run/initramfs/live/LiveOS/store.squashfs.img
-Where=/var/lib/containers/storage
+Where=/var/lib/superiso-store
 Type=squashfs
 Options=loop,ro,nodev
 
