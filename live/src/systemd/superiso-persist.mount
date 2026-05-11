@@ -1,0 +1,17 @@
+[Unit]
+Description=SuperISO persistence partition
+Documentation=man:systemd.mount(5)
+DefaultDependencies=no
+After=systemd-udev-settle.service local-fs-pre.target
+Before=local-fs.target
+ConditionKernelCommandLine=superiso.persist=1
+ConditionPathExists=/dev/disk/by-label/SUPERISOPST
+
+[Mount]
+What=/dev/disk/by-label/SUPERISOPST
+Where=/var/lib/superiso-persist
+Type=ext4
+Options=rw,nofail,x-systemd.device-timeout=3s
+
+[Install]
+WantedBy=local-fs.target

@@ -1,0 +1,21 @@
+[Unit]
+Description=Large /var/tmp scratch tmpfs for offline bootc installs
+Documentation=man:tmpfs(5)
+DefaultDependencies=no
+After=systemd-remount-fs.service local-fs-pre.target
+Before=local-fs.target
+
+[Mount]
+What=tmpfs
+Where=/var/tmp
+Type=tmpfs
+# bootc/ostree-ext stages container layer blobs under /var/tmp even when the
+# source image is containers-storage:.  The live root overlay is intentionally
+# small, so give /var/tmp its own scratch tmpfs.  tmpfs is not preallocated;
+# the limit only caps growth.  16G covers large uBlue/NVIDIA payloads on
+# normal installer machines while still working on smaller machines if the
+# selected payload needs less scratch.
+Options=mode=1777,size=16G,nr_inodes=1m
+
+[Install]
+WantedBy=local-fs.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Set up SuperISO DE-scoped user persistence
+ConditionKernelCommandLine=superiso.persist=1
+Requires=var-lib-superiso\x2dpersist.mount
+After=var-lib-superiso\x2dpersist.mount
+Before=display-manager.service getty@tty1.service serial-getty@ttyS0.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/superiso-persist-setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -10,7 +10,7 @@
 #
 # How it works:
 #   1. Render images.<family>.json with default_family pre-selected.
-#   2. Build localhost/superiso-live-<family> via Containerfile.{ublue,dakota}.
+#   2. Build localhost/superiso-live-<family> via the distro-agnostic live Containerfile.
 #   3. podman image mount → cp -a into a staging tree.
 #   4. Strip /var/lib/containers/storage from the staging tree (the store is
 #      shared across all live envs and lives in its own squashfs).
@@ -24,7 +24,11 @@ FAMILY="${2:?...}"
 REF="${3:?...}"
 OUT="${4:?...}"
 
-CF=live/Containerfile.ublue
+# Default to the distro-agnostic live transform.  It builds dmsquash-live in a
+# Debian helper stage and does not use the base image's package manager or
+# Fedora livesys scripts.  Override only for debugging:
+#   SUPERISO_LIVE_CONTAINERFILE=live/Containerfile.ublue
+CF="${SUPERISO_LIVE_CONTAINERFILE:-live/Containerfile.generic}"
 
 # Compression preset (override via SUPERISO_COMPRESSION env: "fast" | "release")
 case "${SUPERISO_COMPRESSION:-fast}" in
@@ -33,20 +37,40 @@ case "${SUPERISO_COMPRESSION:-fast}" in
 esac
 
 LIVE_OUT="${OUT}/live/${FAMILY}"
-mkdir -p "${LIVE_OUT}"
+BUILD_TMP="${SUPERISO_BUILD_TMPDIR:-${OUT}/tmp}"
+mkdir -p "${LIVE_OUT}" "${BUILD_TMP}"
 
 # ── 1. Render per-family images.json ────────────────────────────────────────
 mkdir -p live/src/etc/bootc-installer
 bash scripts/gen-images-json.sh "${TSV}" \
     "live/src/etc/bootc-installer/images.${FAMILY}.json" \
     "${FAMILY}"
+bash scripts/gen-recipe-json.sh "${TSV}" \
+    "live/src/etc/bootc-installer/recipe.${FAMILY}.json" \
+    "${FAMILY}"
+bash scripts/gen-installer-assets.sh "${TSV}" \
+    "live/src/share/bootc-installer/images"
 
 # ── 2. Build the live-env container image ───────────────────────────────────
+# Persistence is scoped by desktop environment, not distro/family.  Infer the
+# live desktop from the selected live row.  Override with SUPERISO_DESKTOP if
+# a future profile needs an explicit value.
+row=$(awk -F'\t' -v ref="${REF}" -v fam="${FAMILY}" 'BEGIN{IGNORECASE=1} $1==ref && $6==fam {print $0; exit}' "${TSV}")
+DESKTOP="${SUPERISO_DESKTOP:-}"
+if [[ -z "${DESKTOP}" ]]; then
+    if grep -Eiq 'aurora|kde|plasma' <<< "${row}"; then
+        DESKTOP=kde
+    else
+        DESKTOP=gnome
+    fi
+fi
+
 LIVE_IMG="localhost/superiso-live-${FAMILY}"
-echo ">>> [${FAMILY}] Building ${LIVE_IMG} from ${REF}"
-podman build \
+echo ">>> [${FAMILY}] Building ${LIVE_IMG} from ${REF} (desktop=${DESKTOP})"
+TMPDIR="${BUILD_TMP}" podman build \
     --build-arg "BASE_IMAGE=${REF}" \
     --build-arg "FAMILY=${FAMILY}" \
+    --build-arg "DESKTOP=${DESKTOP}" \
     -t "${LIVE_IMG}" \
     -f "${CF}" \
     live
@@ -62,12 +86,13 @@ _ns "
     set -euo pipefail
     LIVE_IMG='${LIVE_IMG}'
     LIVE_OUT='${LIVE_OUT}'
+    BUILD_TMP='${BUILD_TMP}'
     SFS_LEVEL='${SFS_LEVEL}'
     SFS_BLOCK='${SFS_BLOCK}'
 
-    SROOT=\$(mktemp -d /var/tmp/superiso-${FAMILY}-root.XXXXXX)
-    OVERLAY_UPPER=\$(mktemp -d /var/tmp/superiso-${FAMILY}-upper.XXXXXX)
-    OVERLAY_WORK=\$(mktemp -d /var/tmp/superiso-${FAMILY}-work.XXXXXX)
+    SROOT=\$(mktemp -d "\${BUILD_TMP}/superiso-${FAMILY}-root.XXXXXX")
+    OVERLAY_UPPER=\$(mktemp -d "\${BUILD_TMP}/superiso-${FAMILY}-upper.XXXXXX")
+    OVERLAY_WORK=\$(mktemp -d "\${BUILD_TMP}/superiso-${FAMILY}-work.XXXXXX")
 
     cleanup() {
         umount \"\${SROOT}\" 2>/dev/null || true
@@ -104,9 +129,9 @@ _ns "
         -e proc -e sys -e dev -e run -e tmp
 
     # Extract boot files for ESP assembly.
-    kver=\$(ls \"\${MOUNT}/usr/lib/modules\" | sort -V | tail -1)
-    cp \"\${MOUNT}/usr/lib/modules/\${kver}/vmlinuz\"      \"\${LIVE_OUT}/vmlinuz\"
-    cp \"\${MOUNT}/usr/lib/modules/\${kver}/initramfs.img\" \"\${LIVE_OUT}/initramfs.img\"
+    kver=\$(find "\${MOUNT}/usr/lib/modules" -maxdepth 2 -name "modules.dep" -print | head -1 | xargs dirname | xargs basename)
+    cp "\${MOUNT}/usr/lib/modules/\${kver}/vmlinuz"      "\${LIVE_OUT}/vmlinuz"
+    cp "\${MOUNT}/usr/lib/modules/\${kver}/initramfs.img" "\${LIVE_OUT}/initramfs.img"
     mkdir -p \"\${LIVE_OUT}/EFI\"
     if [[ -d \"\${MOUNT}/usr/lib/systemd/boot/efi\" ]]; then
         cp -r \"\${MOUNT}/usr/lib/systemd/boot/efi/.\" \"\${LIVE_OUT}/EFI/\"

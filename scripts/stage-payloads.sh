@@ -71,6 +71,14 @@ while IFS=$'\t' read -r ref name desc fs cfs family live; do
 done < "${TSV}"
 
 echo ">>> Staging size:"
-du -sh "${STORAGE}"
+if [[ $(id -u) -eq 0 ]]; then
+    du -sh "${STORAGE}" || true
+else
+    podman unshare du -sh "${STORAGE}" || du -sh "${STAGING}" || true
+fi
 echo ">>> Layer count:"
-find "${STORAGE}/overlay" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l
+if [[ $(id -u) -eq 0 ]]; then
+    find "${STORAGE}/overlay" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l
+else
+    podman unshare find "${STORAGE}/overlay" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l || true
+fi

@@ -33,7 +33,7 @@ while IFS=$'\t' read -r ref name desc fs cfs family live; do
         --arg name "$name" \
         --arg ref "$ref" \
         --arg desc "$desc" \
-        --arg icon "resource:///org/bootcinstaller/Installer/images/${slug}.png" \
+        --arg icon "/run/host/usr/share/bootc-installer/images/${slug}.svg" \
         --arg fs "$fs" \
         --argjson cfs "$cfs" \
         --arg family "$family" \

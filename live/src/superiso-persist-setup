@@ -1,0 +1,93 @@
+#!/usr/bin/bash
+# Set up DE-scoped user persistence.
+#
+# Persistence model:
+#   /var/lib/superiso-persist/homes/gnome/liveuser  -> GNOME dotfiles/config/state
+#   /var/lib/superiso-persist/homes/kde/liveuser    -> KDE dotfiles/config/state
+#   /var/lib/superiso-persist/shared/{Documents,...} shared content folders
+#
+# The DE boundary matters more than distro/family.  Bluefin/Dakota/Bazzite-GNOME
+# should share the GNOME home; Aurora/Bazzite-KDE should share the KDE home.
+
+set -euo pipefail
+
+PERSIST_ROOT=/var/lib/superiso-persist
+USER_NAME=liveuser
+
+[[ -d "$PERSIST_ROOT" ]] || exit 0
+id "$USER_NAME" >/dev/null 2>&1 || exit 0
+
+DESKTOP=$(cat /etc/superiso/desktop 2>/dev/null || echo unknown)
+case "$DESKTOP" in
+    gnome|kde) ;;
+    *)
+        # Fallback for older images without the marker.
+        family=$(cat /etc/superiso/family 2>/dev/null || echo unknown)
+        case "$family" in
+            *aurora*|*kde*) DESKTOP=kde ;;
+            *)              DESKTOP=gnome ;;
+        esac
+        ;;
+esac
+
+USER_HOME=$(getent passwd "$USER_NAME" | cut -d: -f6)
+[[ -n "$USER_HOME" ]] || exit 0
+
+PERSIST_HOME="$PERSIST_ROOT/homes/$DESKTOP/$USER_NAME"
+SHARED="$PERSIST_ROOT/shared"
+
+install -d -m 0755 "$PERSIST_ROOT" "$PERSIST_ROOT/homes" "$PERSIST_ROOT/homes/$DESKTOP" "$PERSIST_HOME" "$SHARED"
+
+# Seed the DE-scoped persistent home from the live skeleton/home on first use.
+if [[ ! -e "$PERSIST_HOME/.superiso-home-initialized" ]]; then
+    if [[ -d "$USER_HOME" ]]; then
+        shopt -s dotglob nullglob
+        for item in "$USER_HOME"/*; do
+            base=$(basename "$item")
+            case "$base" in
+                Desktop|Documents|Downloads|Music|Pictures|Public|Templates|Videos|Persistent)
+                    continue ;;
+            esac
+            cp -a --reflink=auto "$item" "$PERSIST_HOME/" 2>/dev/null || cp -a "$item" "$PERSIST_HOME/" || true
+        done
+        shopt -u dotglob nullglob
+    fi
+    touch "$PERSIST_HOME/.superiso-home-initialized"
+fi
+
+for dir in Desktop Documents Downloads Music Pictures Public Templates Videos; do
+    install -d -m 0755 "$SHARED/$dir"
+    # Store shared-content symlinks in the persistent DE home.  Dotfiles remain
+    # per-DE; only standard content folders are shared between DEs.
+    rm -rf "$PERSIST_HOME/$dir"
+    ln -s "$SHARED/$dir" "$PERSIST_HOME/$dir"
+done
+
+install -d -m 0755 "$SHARED/Persistent"
+rm -rf "$PERSIST_HOME/Persistent"
+ln -s "$SHARED/Persistent" "$PERSIST_HOME/Persistent"
+
+chown -R "$USER_NAME:$USER_NAME" "$PERSIST_ROOT/homes" "$SHARED" 2>/dev/null || true
+
+# Replace the live home with the DE-scoped persistent home.  Mounting over the
+# existing directory is safer than changing passwd and works for both /home and
+# /var/home layouts.
+install -d -m 0755 "$USER_HOME"
+chown "$USER_NAME:$USER_NAME" "$USER_HOME" 2>/dev/null || true
+mountpoint -q "$USER_HOME" || mount --bind "$PERSIST_HOME" "$USER_HOME"
+
+# Make xdg-user-dirs explicit inside the persistent home.
+install -d -m 0755 "$USER_HOME/.config"
+cat > "$USER_HOME/.config/user-dirs.dirs" <<EOF
+XDG_DESKTOP_DIR="$USER_HOME/Desktop"
+XDG_DOWNLOAD_DIR="$USER_HOME/Downloads"
+XDG_TEMPLATES_DIR="$USER_HOME/Templates"
+XDG_PUBLICSHARE_DIR="$USER_HOME/Public"
+XDG_DOCUMENTS_DIR="$USER_HOME/Documents"
+XDG_MUSIC_DIR="$USER_HOME/Music"
+XDG_PICTURES_DIR="$USER_HOME/Pictures"
+XDG_VIDEOS_DIR="$USER_HOME/Videos"
+EOF
+chown -R "$USER_NAME:$USER_NAME" "$USER_HOME/.config" 2>/dev/null || true
+
+echo "SuperISO persistence active: desktop=$DESKTOP home=$USER_HOME persistent_home=$PERSIST_HOME shared=$SHARED"

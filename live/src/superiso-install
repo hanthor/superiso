@@ -1,22 +1,32 @@
 #!/usr/bin/bash
-# superiso-install — minimal TUI wrapper around `bootc install to-disk`.
+# superiso-install — minimal TUI wrapper around fisherman.
 #
-# Reads /etc/bootc-installer/images.json, lets the user pick an image, then
-# invokes bootc install pulling from the locally-mounted containers-storage.
-# This is a fallback for when the GUI bootc-installer flatpak isn't running.
+# Supported SuperISO install path:
+#   bootc-installer Flatpak GUI → fisherman backend
+#   or this headless helper     → fisherman backend
+#
+# Direct user-facing `bootc install` is intentionally avoided here. bootc is an
+# implementation detail used by fisherman.
 
 set -euo pipefail
 
 CFG=/etc/bootc-installer/images.json
-[[ -r "$CFG" ]] || { echo "ERROR: $CFG missing — was this image built by superiso?" >&2; exit 1; }
+[[ -r "$CFG" ]] || { echo "ERROR: $CFG missing — was this image built by SuperISO?" >&2; exit 1; }
 command -v jq >/dev/null || { echo "ERROR: jq missing" >&2; exit 1; }
+[[ -x /usr/local/bin/fisherman ]] || { echo "ERROR: /usr/local/bin/fisherman missing — bootc-installer Flatpak was not installed" >&2; exit 1; }
 
 mapfile -t REFS < <(jq -r '.images[] | "\(.imgref)\t\(.name)\t\(.desc)\t\(.filesystem)\t\(.composefs)\t\(.family)"' "$CFG")
 DEFAULT_REF=$(jq -r '.default_image' "$CFG")
 DEFAULT_FAMILY=$(jq -r '.default_family // ""' "$CFG")
 
+if [[ "${#REFS[@]}" -eq 0 ]]; then
+    echo "ERROR: no installer images listed in $CFG" >&2
+    exit 1
+fi
+
 echo "==================================================="
-echo " Super-ISO installer (booted family: ${DEFAULT_FAMILY:-?})"
+echo " SuperISO installer (fisherman backend)"
+echo " Booted family: ${DEFAULT_FAMILY:-?}"
 echo "==================================================="
 
 i=1
@@ -26,34 +36,55 @@ for line in "${REFS[@]}"; do
     [[ "$ref" == "$DEFAULT_REF" ]] && default_idx=$i
     marker="  "
     [[ "$ref" == "$DEFAULT_REF" ]] && marker="* "
-    printf '%s%2d) %-22s %s\n' "$marker" "$i" "$name" "$desc"
+    printf '%s%2d) %-28s %s\n' "$marker" "$i" "$name" "$desc"
     i=$((i+1))
 done
+
 echo
 read -rp "Select image [${default_idx}]: " choice
 choice=${choice:-$default_idx}
+if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#REFS[@]} )); then
+    echo "Invalid choice: $choice" >&2
+    exit 1
+fi
 sel=${REFS[$((choice-1))]}
 IFS=$'\t' read -r ref name desc fs cfs fam <<< "$sel"
 
 echo
 echo "Block devices:"
-lsblk -dn -o NAME,SIZE,MODEL | awk '{printf "  /dev/%s\n", $0}'
+lsblk -dn -o NAME,SIZE,MODEL | awk '{printf "  /dev/%-12s %8s  %s\n", $1, $2, substr($0, index($0,$3))}'
 echo
 read -rp "Target device (e.g. /dev/nvme0n1): " disk
 [[ -b "$disk" ]] || { echo "Not a block device: $disk" >&2; exit 1; }
 
-CFS_FLAG=()
-[[ "$cfs" == "true" ]] && CFS_FLAG=(--composefs-native)
+host_slug=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-//; s/-$//')
+host_slug=${host_slug:-superiso-installed}
+recipe=$(mktemp /tmp/superiso-fisherman-recipe.XXXXXX.json)
+trap 'rm -f "$recipe"' EXIT
+
+jq -n \
+    --arg disk "$disk" \
+    --arg image "containers-storage:${ref}" \
+    --arg fs "$fs" \
+    --arg hostname "$host_slug" \
+    --argjson compose "$cfs" \
+    '{disk:$disk,
+      filesystem:$fs,
+      image:$image,
+      composeFsBackend:$compose,
+      bootloader:"systemd",
+      hostname:$hostname,
+      flatpaks:[]}' \
+    > "$recipe"
 
 echo
 echo ">>> Installing ${ref} → ${disk}"
 echo ">>>   filesystem=${fs}  composefs=${cfs}"
-sleep 2
+echo ">>>   backend=fisherman"
+echo
+sudo /usr/local/bin/fisherman validate "$recipe"
+echo
+read -rp "This will erase ${disk}. Type INSTALL to continue: " confirm
+[[ "$confirm" == "INSTALL" ]] || { echo "Aborted."; exit 1; }
 
-exec sudo bootc install to-disk \
-    --source-imgref "containers-storage:${ref}" \
-    --target-imgref "docker://${ref}" \
-    --filesystem "${fs}" \
-    "${CFS_FLAG[@]}" \
-    --wipe \
-    "${disk}"
+exec sudo /usr/local/bin/fisherman "$recipe"

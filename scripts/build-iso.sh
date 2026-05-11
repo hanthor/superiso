@@ -95,9 +95,11 @@ EOF
 # a CD-ROM or a USB without persistence).  Default tmpfs overlay = no prompt.
 CMDLINE_BASE="root=live:CDLABEL=${LABEL} rd.live.image rd.live.dir=LiveOS rd.live.overlay.overlayfs=1 enforcing=0 quiet console=ttyS0,115200n8 console=ttyAMA0,115200n8"
 
-# Persistence-enabled cmdline (used by the persistent-disk variant of each
-# loader entry, only meaningful when the SUPERISOPST partition is present).
-CMDLINE_PERSIST="${CMDLINE_BASE} rd.live.overlay=LABEL=${PERSIST_LABEL}"
+# Persistence-enabled cmdline.  Gold/SuperISO persistence is userspace and
+# desktop-environment scoped: GNOME and KDE get separate dotfiles/state, while
+# Documents/Downloads/Pictures/etc. are shared.  Avoid a single shared root
+# overlay across different live roots.
+CMDLINE_PERSIST="${CMDLINE_BASE} superiso.persist=1"
 
 for fam in "${FAMILIES[@]}"; do
     src="${OUT}/live/${fam}"
@@ -114,10 +116,10 @@ for fam in "${FAMILIES[@]}"; do
     cp "${src}/vmlinuz"       "${ISO_ROOT}/images/pxeboot/${fam}/vmlinuz"
     cp "${src}/initramfs.img" "${ISO_ROOT}/images/pxeboot/${fam}/initrd.img"
 
-    # Loader entries — two per family: one for ephemeral (tmpfs overlay)
-    # and one that opts into the SUPERISOPST persistence partition.  The
-    # persistence variant only "works" when booted from a USB that includes
-    # the partition (built via `just disk`); on a pure ISO it'll prompt.
+    # Loader entries — two per family: one ephemeral and one userspace
+    # persistence variant.  The persistence variant mounts LABEL=SUPERISOPST
+    # after switch_root and sets up DE-scoped user persistence; it does not use
+    # a shared root overlay.
     title="Super-ISO Live — ${fam}"
     [[ "$fam" == "$DEFAULT_FAMILY" ]] && title="${title} (default)"
     cat > "${ESP_STAGING}/loader/entries/${fam}.conf" <<EOF

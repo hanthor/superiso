@@ -40,12 +40,12 @@ stage:
     # matches the containers/storage version that will read it at install
     # time.  Prefer a previously-built superiso-live-* image; otherwise any
     # ublue image we've already pulled; finally fall back to skopeo:stable.
-    HOST_IMG=$(podman images \
-        | awk '/^localhost\/superiso-live-/ {print $1":"$2; exit}')
+    set +o pipefail
+    HOST_IMG=$(podman images | awk '/^localhost\/superiso-live-/ {print $1":"$2; exit}')
     if [[ -z "${HOST_IMG}" ]]; then
-        HOST_IMG=$(podman images \
-            | awk '/ublue-os\/(bazzite|bluefin|aurora)/ {print $1":"$2; exit}')
+        HOST_IMG=$(podman images | awk '/ublue-os\/(bazzite|bluefin|aurora)/ {print $1":"$2; exit}')
     fi
+    set -o pipefail
     if [[ -z "${HOST_IMG}" ]]; then
         echo ">>> Pulling bootstrap host image (skopeo runner)..."
         podman pull quay.io/skopeo/stable:latest
@@ -143,4 +143,24 @@ status:
     else echo "  (none)"; fi
     @echo
     @echo "─── disk usage ──"
+    @mkdir -p {{output_dir}}
     @df -h {{output_dir}}
+
+# Build a named profile from profiles/<profile>.tsv into output/<profile>/.
+profile name:
+    just payloads=profiles/{{name}}.tsv output_dir=output/{{name}} compression={{compression}} all
+
+# Build Dakota, Aurora, Bluefin, and Bazzite concurrently, each into its own
+# output/<profile>/ directory by default. Tune concurrency with
+# SUPERISO_PROFILE_JOBS and place large builds elsewhere with
+# SUPERISO_OUTPUT_BASE=/var/tmp/superiso-output.
+profiles:
+    SUPERISO_COMPRESSION={{compression}} scripts/build-profiles.sh dakota aurora bluefin bazzite
+
+# Build the larger all-uBlue experiment.
+gold:
+    just payloads=profiles/gold-ublue.tsv output_dir=output/gold-ublue compression={{compression}} all
+
+# Smoke-test a built profile ISO in QEMU. Example: just test-profile bluefin
+test-profile name:
+    scripts/test-profile.sh {{name}}

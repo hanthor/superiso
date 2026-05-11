@@ -12,9 +12,9 @@ family from a single USB; install any of the embedded images offline.
 |    3. Aurora NVIDIA Live    (live=aurora-nvidia)                  |
 |    4. Dakota Live           (live=dakota)                         |
 |                                                                   |
-|  Each live env mounts the SHARED store at /var/lib/containers     |
-|  /storage and runs `superiso-install` (or the bootc-installer     |
-|  flatpak), which lets you install ANY of the 7 embedded images:   |
+|  Each live env mounts the SHARED store at /var/lib/superiso-store |
+|  and autostarts the bootc-installer Flatpak.  Both the GUI and    |
+|  `superiso-install` use fisherman as the only install backend.    |
 |    bazzite | bazzite-nvidia | bluefin | bluefin-nvidia            |
 |    aurora  | aurora-nvidia  | dakota                              |
 |                                                                   |
@@ -34,18 +34,18 @@ variant from the installer picker.  The installer pre-selects the
 Working:
 - TSV-driven payload manifest with `family` + `live` columns
 - Multi-image staging into a shared overlay-driver containers-storage
-- Per-family live env build (`Containerfile.ublue` + `Containerfile.dakota`)
+- Distro-agnostic live env build (`live/Containerfile.generic`)
 - Per-family rootfs squashfs (no embedded store — keeps each ~3 GB)
 - Shared store squashfs (loop-mounted at boot via `superiso-store.mount`)
 - Multi-boot UEFI/systemd-boot ISO (one menu entry per live family)
 - Persistence partition wrapper (`just disk`) with ext4 `SUPERISOPST`
 - Per-family installer config (`images.<family>.json`) with default-family
   preselection
-- Minimal CLI installer (`/usr/local/bin/superiso-install`) as a fallback
-  before the bootc-installer flatpak is integrated
+- bootc-installer Flatpak preinstalled and autostarted
+- `/usr/local/bin/superiso-install` headless helper using fisherman
+- fisherman is the only supported SuperISO install backend
 
 Deferred:
-- bootc-installer flatpak GUI integration (your separate project)
 - Image signature verification via `containers-policy.json`
 - Online image refresh from the live env (pull new versions onto persistence
   partition, layer onto containers-storage at boot)
@@ -56,17 +56,12 @@ Deferred:
 Prereqs (host):
 - `podman`, `just`, `jq`
 - `xorriso`, `mkfs.fat`, `mtools`, `mksquashfs`, `sgdisk`, `losetup`
-- A checkout of [dakota-iso](https://github.com/projectbluefin/dakota-iso)
-  next to this repo (only used for the dakota live env's pre-built
-  initramfs)
+- Network access while building live roots, to fetch the bootc-installer Flatpak bundle
 - ~80 GB free on the build filesystem (release-compression target ~25 GB ISO,
   but the working set incl. overlay containers-storage is much larger)
 
 ```fish
-# 0. (one-time) Build the dakota live base.  ~30 minutes.
-just dakota-base
-
-# 1. Edit payloads.tsv to choose what ships.
+# 1. Edit payloads.tsv or one of profiles/*.tsv to choose what ships.
 
 # 2. End-to-end build.
 just all                         # = stage → live-envs → store-sqfs → iso
@@ -120,11 +115,12 @@ superiso/
     build-iso.sh                     multi-boot UEFI ISO assembly
     build-disk.sh                    ISO → hybrid raw .img with persistence partition
   live/
-    Containerfile.ublue              generic Fedora-bootc → live transform
-    Containerfile.dakota             dakota → live transform (FROM dakota-installer)
+    Containerfile.generic            distro-agnostic bootc → live transform
+    Containerfile.ublue              old Fedora/dnf transform, debug fallback only
     src/
       systemd/superiso-store.mount   loop-mount store.squashfs.img at boot
-      superiso-install               minimal TUI installer
+      superiso-install               minimal TUI wrapper around fisherman
+      install-bootc-installer-flatpak.sh
       etc/bootc-installer/
         images.<family>.json         generated; gitignored
   output/
@@ -152,14 +148,17 @@ UEFI firmware
             rd.live.overlay.overlayfs=1
             superiso.family=<family>
           → mounts <family>.rootfs.sfs as the live root
-          → systemd brings up var-lib-containers-storage.mount
+          → systemd brings up var-lib-superiso\x2dstore.mount
             which loop-mounts /run/initramfs/live/LiveOS/store.squashfs.img
-            at /var/lib/containers/storage
+            at /var/lib/superiso-store
+          → containers/storage sees it as an additional read-only image store
           → desktop session
-          → installer reads /etc/bootc-installer/images.json
-            (default_family = booted family) and runs:
-              bootc install to-disk \
-                --source-imgref containers-storage:<chosen-ref> \
-                --target-imgref docker://<chosen-ref> \
-                /dev/<target>
+          → bootc-installer Flatpak autostarts and reads:
+              /etc/bootc-installer/images.json
+              /etc/bootc-installer/recipe.json
+          → bootc-installer invokes fisherman
+          → fisherman installs the selected containers-storage:<ref> image
+
+Direct user-facing `bootc install` is not a supported SuperISO flow.  bootc is
+an implementation detail below fisherman.
 ```

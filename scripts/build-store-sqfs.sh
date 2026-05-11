@@ -27,7 +27,11 @@ case "${SUPERISO_COMPRESSION:-fast}" in
 esac
 
 echo ">>> Building store squashfs from ${STORAGE} (level=${SFS_LEVEL}, block=${SFS_BLOCK})"
-du -sh "${STORAGE}"
+if [[ $(id -u) -eq 0 ]]; then
+    du -sh "${STORAGE}" || true
+else
+    podman unshare du -sh "${STORAGE}" || du -sh "${STAGING}" || true
+fi
 
 if [[ $(id -u) -eq 0 ]]; then
     _ns() { bash -c "$1"; }

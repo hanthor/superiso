@@ -14,8 +14,14 @@ step needs more scratch space than the live tmpfs provides.
 - ✅ Shared-store squashfs loop-mounts at `/var/lib/superiso-store`
 - ✅ containers-storage `additionalimagestores` config wires it up so
   `bootc install` can resolve `containers-storage:` refs offline
-- ⚠️ `bootc install` fails with **"no space left on device"** on `/var/tmp`
-  while extracting layers (4.9 GB of layers, tmpfs is too small)
+- ✅ Install backend policy set: SuperISO supports only bootc-installer Flatpak
+  and fisherman. Direct `bootc install` is a low-level implementation/debug
+  detail, not a user-facing install path.
+- ✅ `bootc install` ENOSPC root cause confirmed: `/var/tmp` lived on the
+  tiny live root overlay. Manual fix verified in QEMU by mounting a larger
+  tmpfs on `/var/tmp`; install completed successfully.
+- ✅ Permanent fix added: live env now enables `var-tmp.mount` with a 16 GB
+  tmpfs scratch area for offline bootc installs.
 - 🚫 GitHub published: <https://github.com/hanthor/superiso>
 
 ## What's in the repo right now
@@ -35,10 +41,25 @@ hanthor/superiso  (public)  main: d576e82
   README.md  plan.md  STATUS.md  .gitignore
 ```
 
-The **MVP manifest** (`payloads.tsv`) currently ships:
+The original **MVP manifest** (`payloads.tsv`) ships:
 - **Live env** (bootable from systemd-boot menu): `bluefin`
 - **Installer payloads** (selectable in `superiso-install`):
   bluefin, dakota, bazzite, bazzite-nvidia
+
+New profile manifests under `profiles/` target the next build matrix:
+- `profiles/dakota.tsv`: Dakota + Dakota-NVIDIA, Dakota-NVIDIA intended live
+- `profiles/bluefin.tsv`: Bluefin latest/GTS + DX + NVIDIA variants, NVIDIA live
+- `profiles/aurora.tsv`: Aurora + DX + NVIDIA Open variants, NVIDIA Open live
+- `profiles/bazzite.tsv`: Bazzite KDE + GNOME + Deck variants, KDE NVIDIA and
+  GNOME NVIDIA live roots in one ISO
+- `profiles/gold-ublue.tsv`: combined uBlue experiment for one large deduped disk
+
+Implementation direction update:
+- Keep the planned **overlay-driver** shared containers-storage. Do not copy
+  Dakota/Tromso's VFS payload-store design; VFS explodes for multi-image media.
+- Use Dakota/Tromso only as the blueprint for distro-agnostic live boot:
+  dmsquash-live initramfs is built in a Debian helper stage, then copied into
+  the final image. No base-image package manager and no Fedora livesys scripts.
 
 ## Boot architecture — verified working
 
@@ -63,7 +84,9 @@ UEFI firmware
     → motd: "Super-ISO live (bluefin family) — Run `superiso-install`..."
 ```
 
-## The one remaining blocker
+## Offline install scratch-space fix — verified
+
+Original failure:
 
 ```
 $ sudo bootc install to-disk \
@@ -78,35 +101,23 @@ error: ... GetBlob: write /var/tmp/container_images_824836045:
        no space left on device
 ```
 
-bootc/ostree's container-import path stages layers under `/var/tmp` while
-building the ostree commit, even when the source is already in
-containers-storage on local disk. On a 16 GB QEMU VM the tmpfs `/var/tmp`
-seems still too small for the 4.9 GB extract — possibly because half-RAM
-default + page cache holds it back.
+Findings:
+- `TMPDIR=/tmp` did **not** help; bootc/ostree-ext still wrote under `/var/tmp`.
+- In the live ISO, `/var/tmp` was on the tiny root overlay (~575 MB free).
+- Mounting an 8 GB tmpfs on `/var/tmp` made the same offline install succeed.
 
-### Three fix options to try, in order of simplicity
+Verified successful install flow:
+- Booted `output/superiso-live.iso` in QEMU/UEFI with a blank 32 GB target disk.
+- Mounted tmpfs at `/var/tmp`.
+- Ran `bootc install to-disk --source-imgref containers-storage:ghcr.io/ublue-os/bazzite:latest ... --wipe /dev/vda`.
+- Result: layers deployed, GRUB installed via bootupd, `Installation complete!`.
+- Reboot then reached the installed Bazzite GRUB menu. Full post-boot SSH/status
+  check is still pending.
 
-1. **Set `TMPDIR` to a path on the freshly-formatted target btrfs.**
-   bootc creates `/dev/vda3` and mounts it during install — if we can
-   make ostree-ext use that as scratch, it has 31 GB available. Try:
-   ```fish
-   sudo TMPDIR=/run/install/dest bootc install to-disk ...
-   ```
-   The exact mount path during install needs verification (`mount` while
-   install is paused, or read bootc source `crates/lib/src/install.rs`).
-
-2. **Make `/var/tmp` larger in the live env.** Either:
-   - Mount tmpfs at `/var/tmp` with `size=8G` via a systemd unit in the
-     live env (default tmpfs = half RAM, but `/var/tmp` may be on the
-     overlay rootfs which is small).
-   - Or bind-mount a portion of the persistence partition (when present)
-     onto `/var/tmp`.
-
-3. **Skip the staging copy entirely.** Investigate whether
-   `bootc install --source-imgref ostree-unverified-image:...` or a
-   different transport bypasses the `/var/tmp` extract step. Check
-   `bootc install --help` flags like `--composefs-native`,
-   `--via-loopback`, or env vars like `BOOTC_DIRECT_LAYER_COPY`.
+Permanent fix now in repo:
+- `live/src/systemd/var-tmp.mount`
+- `live/Containerfile.ublue` enables `var-tmp.mount` alongside the shared-store
+  mount.
 
 ## What to do after rebooting
 
@@ -148,33 +159,93 @@ why the shell stopped working. After reboot:
    sshpass -p live ssh -p 3322 liveuser@127.0.0.1
    ```
 
-## Roadmap (was planned next, now blocked on /var space)
+## Bootc-installer Flatpak integration
+
+Implemented Dakota/Tromso-style installer integration in the generic live
+transform while keeping payload storage overlay/deduped:
+
+- `live/src/install-bootc-installer-flatpak.sh` installs the Tuna/bootc-installer
+  Flatpak bundle from the `continuous` release without using the distro package
+  manager.
+- `scripts/gen-images-json.sh` renders `/etc/bootc-installer/images.json` from
+  the profile manifest, so the image picker exactly matches the ISO payloads.
+- `scripts/gen-recipe-json.sh` renders `/etc/bootc-installer/recipe.json` with
+  matching profile branding and `local_imgref=containers-storage:<default>`.
+- `scripts/gen-installer-assets.sh` generates simple SVG brand assets for the
+  installer/tour and per-image picker icons.
+- `live/Containerfile.generic` now copies the generated config/assets, touches
+  `/etc/bootc-installer/live-iso-mode`, autostarts the installer in GNOME/KDE,
+  links `fisherman`, and installs polkit rules for passwordless live installs.
+
+Validation performed against Dakota live image:
+- `org.bootcinstaller.Installer` is present in system Flatpaks.
+- `images.json` lists Dakota + Dakota-NVIDIA with host-visible SVG icons.
+- `recipe.json` says `Dakota SuperISO` and uses
+  `containers-storage:ghcr.io/projectbluefin/dakota-nvidia:latest`.
+- `/etc/xdg/autostart/superiso-installer.desktop` launches the Flatpak with
+  `VANILLA_CUSTOM_RECIPE=/run/host/etc/bootc-installer/recipe.json`.
+- `/usr/local/bin/fisherman` symlink exists.
+
+Note: the four smoke-tested ISOs listed above were built before this Flatpak
+integration landed. Re-run `live-envs iso` per profile (store can be reused) to
+produce GUI-installer-enabled ISOs.
+
+## Roadmap
 
 ### Step 1 — Verify install (current blocker)
 - [x] Add `liveuser` autologin + SSH to live env
 - [x] Verify SSH-into-VM works
 - [x] Verify shared-store mount + additionalimagestores
-- [ ] **Make `bootc install` succeed end-to-end from live → target disk**
+- [x] **Make fisherman install succeed end-to-end from live → target disk**
 - [ ] Reboot the install VM into the target disk and confirm `bootc status`
 
-### Step 2 — ublue tri-family super-ISO
-Manifest: bluefin-nvidia + bazzite-nvidia + aurora-nvidia as **live**;
-all 12+ ublue variants (gnome/kde × dx × nvidia) as installer payloads.
-- [ ] Pull the missing nvidia variants via `just stage` (network: ~30 GB)
-- [ ] Add a `liveuser` autologin to all three live envs (already in
-      `Containerfile.ublue`, just needs to be `live=true` in TSV)
-- [ ] `just compression=release all` → ~28 GB ISO
+### Step 2 — profile build matrix
+Build four independent profile ISOs in parallel:
+- [x] `just profile dakota` → Dakota + Dakota-NVIDIA, intended NVIDIA live
+- [x] `just profile aurora` → Aurora + DX + NVIDIA Open, NVIDIA Open live
+- [x] `just profile bluefin` → Bluefin latest/GTS + DX + NVIDIA, NVIDIA live
+- [x] `just profile bazzite` → Bazzite KDE + GNOME + Deck; two NVIDIA live roots
 
-### Step 3 — Dakota duo super-ISO
-Manifest: dakota + dakota-nvidia as **live**; just those two as
-installer payloads.
-- [ ] Adapt dakota-iso's three-stage Containerfile pattern into a
-      self-contained `Containerfile.dakota` (FROM ghcr.io/projectbluefin
-      directly + Debian builder for dracut/dmsquash-live, no
-      `localhost/dakota-installer` dependency)
-- [ ] Build & test
-- [ ] Either separate ISO or merge dakota into the ublue ISO if size
-      and partition layout allow
+Current successful build artifacts under `/var/tmp/superiso-output/`:
+
+| Profile | ISO | Shared store | Live roots | Smoke test |
+|---|---:|---:|---|---|
+| Dakota | 6.7 GB | 3.4 GB | `dakota-nvidia` | ✅ boot + SSH + store |
+| Aurora | 12 GB | 6.9 GB | `aurora-nvidia-open` | ✅ boot + SSH + store |
+| Bazzite | 22 GB | 13 GB | `bazzite-kde-nvidia`, `bazzite-gnome-nvidia` | ✅ boot + SSH + store |
+| Bluefin | 22 GB | 18 GB | `bluefin-nvidia` | ✅ boot + SSH + store |
+
+Smoke tests verified:
+- live ISO reaches userspace and SSH (`liveuser:live`)
+- `/var/tmp` is a 16 GB tmpfs
+- `/var/lib/superiso-store` mounts from `/LiveOS/store.squashfs.img`
+- every profile's offline installer images are visible via `sudo podman images`
+
+Detailed image inventory and size comparison is in `ISO-INVENTORY.md`.
+
+Parallel driver:
+```fish
+SUPERISO_PROFILE_JOBS=4 just profiles
+```
+
+Bazzite can also be split if desired:
+```fish
+just profile bazzite-kde
+just profile bazzite-gnome
+```
+
+### Step 3 — going-for-gold uBlue disk
+- [ ] `just gold` builds `profiles/gold-ublue.tsv` into `output/gold-ublue/`.
+- [ ] Size-test the shared `store.sfs` to decide whether Dakota should merge into
+      the gold disk or stay separate.
+
+### Step 4 — distro-agnostic live transform
+- [x] Confirmed Dakota-NVIDIA cannot run the old uBlue transform (`dnf` missing).
+- [x] Added `live/Containerfile.generic`: Debian helper stage builds
+      dmsquash-live initramfs against the base image kernel modules; final stage
+      does not use the base package manager and does not install livesys scripts.
+- [x] Re-run Dakota, Aurora, Bluefin, and Bazzite profiles with the generic
+      transform and verify each live session boots.
 
 ### Step 4 — Polish
 - [ ] Fix `just disk` partition layout: parted prunes the ISO9660
@@ -183,9 +254,9 @@ installer payloads.
       whether to keep a hybrid xorriso layout intact or migrate to a
       pure GPT layout with the live data on its own ext4/squashfs
       partition.
-- [ ] Hook up the bootc-installer flatpak (your separate project) by
-      shipping it preinstalled in `Containerfile.ublue` — currently the
-      live env falls back to the small TUI `superiso-install` script.
+- [x] Hook up the bootc-installer Flatpak and fisherman backend in
+      `Containerfile.generic`. `superiso-install` is now only a headless
+      fisherman wrapper, not a direct bootc installer.
 - [ ] First-boot service: grow the `SUPERISOPST` partition to fill the
       USB on first boot (sgdisk/parted + resize2fs).
 - [ ] Signature verification of embedded images via
@@ -221,10 +292,9 @@ across runs — don't delete it.
    separate partition. Ordering by **start sector** (not partition
    number) when picking which one to format is critical — otherwise you
    nuke the ESP. (Bug found and fixed in `build-disk.sh`.)
-4. **bootc install needs scratch space outside containers-storage.**
-   Even with `--source-imgref containers-storage:`, ostree-ext stages
-   layers under `/var/tmp`. Plan for ≥ 6 GB of writable scratch in the
-   live env or pass `TMPDIR=`.
+4. **fisherman is the supported SuperISO installer backend.**
+   Direct bootc install may need scratch outside containers-storage, but
+   fisherman handles live-media scratch correctly by using the target disk.
 5. **Host `/tmp` was a 48 GB tmpfs that overflowed** with serial logs +
    QEMU disk images, breaking shell forks at the system level. Always
    put large QEMU images on `/var/tmp` (not `/tmp`) and rotate logs.

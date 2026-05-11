@@ -1,5 +1,7 @@
 output/
 live/src/etc/bootc-installer/images.*.json
+live/src/etc/bootc-installer/recipe.*.json
+live/src/share/bootc-installer/images/
 *.iso
 *.sfs
 *.img
