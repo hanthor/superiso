@@ -88,6 +88,22 @@ iso:
     PATH="/usr/sbin:/usr/bin:/home/linuxbrew/.linuxbrew/bin:${PATH}" \
         bash scripts/build-iso.sh "${OUT}" "${OUT}/superiso-live.iso"
 
+# Build an ISO via tacklebox from recipes/<profile>.json (PLAN-merge step 6).
+# This is the new, single-call path that replaces the stage→live-envs→
+# store-sqfs→iso chain. The legacy `iso` recipe above stays for now.
+#
+#   just iso-tbx bluefin
+#   just iso-tbx bazzite
+#
+# To regenerate recipes/*.json from the canonical profiles/*.tsv:
+#   for p in profiles/*.tsv; do scripts/profile-to-recipe.sh "$p"; done
+iso-tbx profile:
+    #!/usr/bin/bash
+    set -euo pipefail
+    OUT=$(realpath {{output_dir}})
+    mkdir -p "${OUT}"
+    bash scripts/build-iso-tbx.sh {{profile}} "${OUT}/{{profile}}.iso"
+
 # Wrap the ISO in a raw disk image with a SUPERISOPST persistence partition.
 disk:
     #!/usr/bin/bash
