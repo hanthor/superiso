@@ -1,4 +1,7 @@
 #!/bin/bash
+# shellcheck disable=SC2154
+# moddir, initdir, systemdsystemunitdir are set by dracut before sourcing
+# this module; shellcheck has no way to know that.
 
 check() { return 0; }
 depends() { echo "base rootfs-block dracut-systemd"; return 0; }
