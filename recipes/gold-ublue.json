@@ -1,0 +1,10 @@
+{
+  "media_name": "SuperISO-gold-ublue",
+  "size": "30G",
+  "shared_store": {"format": "ext4"},
+  "bootable_environments": [
+    {"id": "bazzite-kde-nvidia", "image": "ghcr.io/ublue-os/bazzite-nvidia:stable", "modes": ["live"]},
+    {"id": "aurora-nvidia-open", "image": "ghcr.io/ublue-os/aurora-nvidia-open:latest", "modes": ["live"]},
+    {"id": "bluefin-nvidia-open", "image": "ghcr.io/ublue-os/bluefin-nvidia-open:stable", "modes": ["live"]}
+  ]
+}

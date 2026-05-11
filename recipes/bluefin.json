@@ -1,0 +1,8 @@
+{
+  "media_name": "SuperISO-bluefin",
+  "size": "10G",
+  "shared_store": {"format": "ext4"},
+  "bootable_environments": [
+    {"id": "bluefin-nvidia", "image": "ghcr.io/ublue-os/bluefin-nvidia:latest", "modes": ["live"]}
+  ]
+}

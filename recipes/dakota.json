@@ -1,0 +1,8 @@
+{
+  "media_name": "SuperISO-dakota",
+  "size": "10G",
+  "shared_store": {"format": "ext4"},
+  "bootable_environments": [
+    {"id": "dakota-nvidia", "image": "ghcr.io/projectbluefin/dakota-nvidia:latest", "modes": ["live"]}
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "media_name": "SuperISO-aurora",
+  "size": "10G",
+  "shared_store": {"format": "ext4"},
+  "bootable_environments": [
+    {"id": "aurora-nvidia-open", "image": "ghcr.io/ublue-os/aurora-nvidia-open:latest", "modes": ["live"]}
+  ]
+}

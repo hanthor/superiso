@@ -1,0 +1,8 @@
+{
+  "media_name": "SuperISO-bazzite-gnome",
+  "size": "10G",
+  "shared_store": {"format": "ext4"},
+  "bootable_environments": [
+    {"id": "bazzite-gnome-nvidia", "image": "ghcr.io/ublue-os/bazzite-gnome-nvidia:stable", "modes": ["live"]}
+  ]
+}

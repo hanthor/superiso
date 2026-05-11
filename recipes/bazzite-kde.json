@@ -1,0 +1,8 @@
+{
+  "media_name": "SuperISO-bazzite-kde",
+  "size": "10G",
+  "shared_store": {"format": "ext4"},
+  "bootable_environments": [
+    {"id": "bazzite-kde-nvidia", "image": "ghcr.io/ublue-os/bazzite-nvidia:stable", "modes": ["live"]}
+  ]
+}
