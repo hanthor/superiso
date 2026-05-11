@@ -39,14 +39,51 @@ QEMU/UEFI. Tacklebox multi-env disk media now also boots end-to-end (sd-boot
 - ✅ End-to-end QEMU/UEFI boot of a tacklebox-built image: sd-boot menu →
   default entry (aurora alphabetically) → `tbox-root.service` finished →
   `ostree-prepare-root.service` finished → userspace reached.
-- ⚠️  Open issue (NOT a regression): both `tbox-install/aurora` and
-  `tbox-install/bazzite` end up containing the *same* ostree commit hash
-  (bazzite content). Each `bootc install to-filesystem` was invoked from
-  the correct container, but with `--mount type=bind,src=/var/lib/containers`
-  shared across serial installs, bootc appears to reuse the first install's
-  ostree commit for the second. Aurora container itself is genuinely Aurora
-  when run standalone, so the bug is in bootc's source resolution, not in
-  our container builds. Worth filing upstream.
+- ✅ **bootc cross-env collision fixed**: pass
+  `--source-imgref containers-storage:<image>` to `bootc install`. Without
+  this, bootc's "infer source from running container" heuristic picks the
+  wrong image when `/var/lib/containers` is bind-mounted across serial
+  installs. With the explicit pin, each install writes its own content.
+- ✅ **`tacklebox verify`** ships and catches this exact bug (and any future
+  regression) — `2 envs share commit e2c044…: [aurora bazzite]`.
+
+### 2026-05-11 — Tacklebox/SuperISO unification work landed
+
+PLAN-merge.md steps 1-5 done, 6-7 outstanding:
+
+- ✅ Step 1: `internal/target.Target` interface + `BlockTarget` extracted from
+  `runBuild()`. Pure refactor, no behavior change.
+- ✅ Steps 2-4: `IsoTarget` produces a UEFI-bootable hybrid ISO; live install
+  backend (podman image mount + mksquashfs) runs alongside the existing bootc
+  flow. `tacklebox build --iso ...` end-to-end booted to a `liveuser` shell
+  under QEMU/KVM (`examples/iso-smoke.json`).
+- ✅ Step 5: `scripts/profile-to-recipe.sh` converts `profiles/*.tsv` into
+  `recipes/*.json` consumable by `tacklebox build --iso`.
+- ✅ Step 6: `scripts/build-iso-tbx.sh` and `just iso-tbx <profile>` added to
+  wire Tacklebox into the build flow.
+- ⏳ Step 7: decide where the recipes live long-term (root `recipes/` vs
+  staying in SuperISO as the canonical TSVs).
+
+### 2026-05-11 — Automated Updates & CI Progress
+
+- ✅ **Automated Update System**: `tacklebox update-all` refreshes all envs.
+- ✅ **Build-time Provisioning**: `tacklebox build` now drops the updater binary,
+  systemd units, and original recipe into every env's filesystem.
+- ✅ **`tacklebox status`**: New command to show installed envs, versions, and
+  deployment history.
+- ✅ **Stage 4 CI (Boot Smoke)**: `scripts/test-boot.sh` added and wired into GHA.
+  Boots the built image in QEMU (TCG) and asserts success.
+
+### CI
+
+`tacklebox/.github/workflows/ci.yml` runs on every push/PR:
+
+- `lint-test`: go vet + go test + go build + JSON schema parse + shellcheck
+  the dracut module. ~2 min.
+- `verify-smoke`: builds a 10 GB two-env block image from
+  `centos-bootc:stream10` + `fedora-bootc:42` and runs `tacklebox verify`.
+  ~10-15 min, gated on lint-test. Catches regressions in partition layout,
+  BLS wiring, and per-env content distinctness.
 
 ## What's in the repo right now
 

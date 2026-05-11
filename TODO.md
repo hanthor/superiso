@@ -57,3 +57,12 @@ scratch storage) and/or a bug filed upstream against bootc.
   and `ostree-prepare-root.service.requires/`.
 - End-to-end QEMU/UEFI boot of a tacklebox-built three-env image
   reaches userspace for the first time.
+- **bootc cross-env collision fixed**: `--source-imgref containers-storage:`
+  pins each install to the right source image regardless of shared
+  `/var/lib/containers`.
+- **PLAN-merge steps 1-6**: `Target` interface refactor, `IsoTarget` end-to-end
+  (`tacklebox build --iso` boots to a login shell), `tacklebox verify`,
+  GHA CI workflow (Stages 1-4), and `scripts/profile-to-recipe.sh` converting
+  `profiles/*.tsv` → `recipes/*.json`.
+- **Automated Update System**: `tacklebox update-all` + build-time provisioning
+  and `tacklebox status` command.
