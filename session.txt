@@ -1,0 +1,46 @@
+# Tacklebox & SuperISO Handoff Document
+
+## Current Status (2026-05-11)
+
+Both blockers from the previous session are resolved.
+
+### Resolved
+
+1. **`tbox-root` boot ordering** — `tbox-root.service` now reliably runs
+   before `ostree-prepare-root.service`. The module-setup symlinks the
+   unit into both `initrd-root-fs.target.wants/` and
+   `ostree-prepare-root.service.requires/`, so the ordering edge holds
+   regardless of which transaction pulls ostree-prepare-root in. Service
+   also gained `StandardOutput=journal+console` for QEMU diagnostics.
+
+2. **`tacklebox build` ENOSPC on ext4 shared_store** — root cause was
+   inode exhaustion, not block exhaustion. `mkfs.ext4` for the store now
+   passes `-i 4096` (one inode per 4 KiB). The 60 GB `examples/all-test.json`
+   recipe (bazzite + aurora + dakota) builds in ~5m20s.
+
+### Verified
+
+- `tacklebox build examples/all-test.json -b /var/mnt/data/tacklebox-build-alltest`
+  produces a 60 GB image with three bootable environments.
+- QEMU/UEFI boot of the resulting image reaches userspace through the
+  full chain: sd-boot → kernel → `tbox-root.service` → `ostree-prepare-root.service`.
+
+## Open Issue (not a regression)
+
+Both `tbox-install/aurora` and `tbox-install/bazzite` end up containing
+the *same* ostree commit hash (bazzite content). Each `bootc install`
+was invoked from the correct container image, but with
+`--mount type=bind,src=/var/lib/containers` shared across serial installs,
+bootc seems to reuse the first install's ostree commit for the second.
+The aurora container itself contains genuine Aurora content when run
+standalone (`podman run --rm localhost/superiso-live-aurora cat /etc/os-release`
+shows NAME="Aurora"). The bug is in `bootc install`'s source resolution
+when sharing containers-storage across serial invocations. Likely worth
+filing upstream against bootc.
+
+## Files touched this session
+
+- `tacklebox/internal/blockdev/format.go` — `-i 4096` for ext4 store
+- `tacklebox/src/dracut/95tbox-root/{module-setup.sh,tbox-root.service,tbox-root-mount.sh}`
+- `live/src/dracut/95tbox-root/*` (synced from tacklebox/)
+- `STATUS.md` — 2026-05-11 update section

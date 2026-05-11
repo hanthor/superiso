@@ -1,29 +1,48 @@
 #!/bin/bash
 # Handle subdirectory root and shared persistence for Tacklebox
 
+type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
+
 TBOX_ROOT=$(getarg tacklebox.root)
 TBOX_PERSIST=$(getarg tacklebox.persist)
 
+echo ">>> Tacklebox: tbox-root-mount.sh starting"
+echo ">>> Tacklebox: tacklebox.root=$TBOX_ROOT  tacklebox.persist=$TBOX_PERSIST"
+echo ">>> Tacklebox: /sysroot before:"
+ls -la /sysroot 2>&1 | head -20
+findmnt /sysroot 2>&1 || true
+
 # 1. Handle Subdirectory Root
+#
+# /sysroot is mounted by rootfs-block to the whole TBOX_STORE partition.
+# We need to make ostree-prepare-root (and anything else under pre-pivot
+# / pivot_root) see ONLY the env subdirectory as the root. The naïve
+# approach (umount /sysroot + mount --move) fights with systemd's shared
+# mount propagation and fails. Instead we just bind-mount the subdir
+# OVER /sysroot — the kernel allows binding a subtree of an FS over the
+# FS's own mount point, which atomically swaps what is visible without
+# touching propagation flags.
 if [ -n "$TBOX_ROOT" ]; then
-    echo ">>> Tacklebox: Requesting root subdirectory /$TBOX_ROOT"
-    # The main partition is already mounted at /sysroot by rootfs-block
+    echo ">>> Tacklebox: rebasing /sysroot -> /sysroot/$TBOX_ROOT"
     if [ -d "/sysroot/$TBOX_ROOT" ]; then
-        echo ">>> Tacklebox: Found subdirectory. Performing move mount."
-        mkdir -p /sysroot-real
-        if mount -o bind "/sysroot/$TBOX_ROOT" /sysroot-real; then
-            umount /sysroot
-            if mount --move /sysroot-real /sysroot; then
-                echo ">>> Tacklebox: Successfully switched root to /$TBOX_ROOT"
-            else
-                echo ">>> Tacklebox: ERROR: Failed to move mount to /sysroot"
-            fi
+        if mount --bind "/sysroot/$TBOX_ROOT" /sysroot; then
+            echo ">>> Tacklebox: rebased OK"
         else
-            echo ">>> Tacklebox: ERROR: Failed to bind mount subdirectory"
+            echo ">>> Tacklebox: ERROR: bind --bind failed; will fall back to staging dir"
+            # Fallback: stage + move. Requires private propagation.
+            mount --make-rprivate / 2>/dev/null || true
+            mkdir -p /sysroot-real
+            if mount --bind "/sysroot/$TBOX_ROOT" /sysroot-real \
+               && umount -l /sysroot \
+               && mount --move /sysroot-real /sysroot; then
+                echo ">>> Tacklebox: rebased via staging"
+            else
+                echo ">>> Tacklebox: ERROR: failed to rebase /sysroot"
+            fi
+            rmdir /sysroot-real 2>/dev/null || true
         fi
-        rmdir /sysroot-real
     else
-        echo ">>> Tacklebox: ERROR: Subdirectory /$TBOX_ROOT not found on target partition!"
+        echo ">>> Tacklebox: ERROR: /sysroot/$TBOX_ROOT not found"
         ls -la /sysroot
     fi
 fi

@@ -1,0 +1,18 @@
+[Unit]
+Description=Tacklebox Root Mount
+DefaultDependencies=no
+After=sysroot.mount
+Requires=sysroot.mount
+Before=ostree-prepare-root.service initrd-root-fs.target
+ConditionPathExists=/sysroot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/tbox-root-mount.sh
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=initrd-root-fs.target
+RequiredBy=ostree-prepare-root.service

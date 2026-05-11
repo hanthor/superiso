@@ -1,12 +1,12 @@
 # Super-ISO — Status & Next Steps
 
-Last updated: 2026-05-08
+Last updated: 2026-05-11
 
 ## TL;DR
 
 We have a working **multi-boot bootc super-ISO** that boots end-to-end in
-QEMU/UEFI. One blocker remains for offline install: bootc's layer-extract
-step needs more scratch space than the live tmpfs provides.
+QEMU/UEFI. Tacklebox multi-env disk media now also boots end-to-end (sd-boot
+→ tbox-root → ostree-prepare-root → userspace) for the first time.
 
 - ✅ Build pipeline works end-to-end (stage → live-envs → store-sqfs → iso → disk)
 - ✅ Bluefin live env boots to GDM + login prompt under QEMU/UEFI
@@ -23,6 +23,30 @@ step needs more scratch space than the live tmpfs provides.
 - ✅ Permanent fix added: live env now enables `var-tmp.mount` with a 16 GB
   tmpfs scratch area for offline bootc installs.
 - 🚫 GitHub published: <https://github.com/hanthor/superiso>
+
+### 2026-05-11 update — Tacklebox multi-env boot fixed
+
+- ✅ `mkfs.ext4` for `shared_store` now passes `-i 4096` so composefs/ostree
+  object stores no longer exhaust inodes (`tacklebox/internal/blockdev/format.go`).
+  The 60 GB `examples/all-test.json` recipe (bazzite + aurora + dakota)
+  now builds in ~5m20s without ENOSPC.
+- ✅ `tbox-root.service` is now ordered correctly relative to
+  `ostree-prepare-root.service`. Module-setup symlinks the unit into both
+  `initrd-root-fs.target.wants/` *and* `ostree-prepare-root.service.requires/`
+  so the ordering edge holds even when ostree-prepare-root is started
+  outside the target's transaction. Service also gained
+  `StandardOutput=journal+console` for in-QEMU diagnostics.
+- ✅ End-to-end QEMU/UEFI boot of a tacklebox-built image: sd-boot menu →
+  default entry (aurora alphabetically) → `tbox-root.service` finished →
+  `ostree-prepare-root.service` finished → userspace reached.
+- ⚠️  Open issue (NOT a regression): both `tbox-install/aurora` and
+  `tbox-install/bazzite` end up containing the *same* ostree commit hash
+  (bazzite content). Each `bootc install to-filesystem` was invoked from
+  the correct container, but with `--mount type=bind,src=/var/lib/containers`
+  shared across serial installs, bootc appears to reuse the first install's
+  ostree commit for the second. Aurora container itself is genuinely Aurora
+  when run standalone, so the bug is in bootc's source resolution, not in
+  our container builds. Worth filing upstream.
 
 ## What's in the repo right now
 
