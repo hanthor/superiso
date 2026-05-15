@@ -62,8 +62,7 @@ if [[ "${SUPERISO_GENERATE_ONLY:-0}" == "1" ]]; then
     exit 0
 fi
 
-echo ">>> Building tacklebox binary..."
-(cd "${REPO}/tacklebox" && go build -o tacklebox ./cmd/tacklebox)
+echo ">>> Using tacklebox binary: ${TBX}"
 
 if [[ "${SUPERISO_SKIP_PULL:-0}" != "1" ]]; then
     echo ">>> Pre-pulling profile payload images..."
