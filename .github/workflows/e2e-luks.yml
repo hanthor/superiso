@@ -1,0 +1,349 @@
+name: LUKS End-to-End Test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/e2e-luks.yml"
+      - "live/**"
+      - "profiles/**"
+      - "scripts/**"
+      - "tacklebox/**"
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Profile JSON to build and test"
+        required: true
+        default: "profiles/dakota-dual.profile.json"
+      installer_channel:
+        description: "bootc-installer Flatpak channel"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - stable
+      runner:
+        description: "Runner label with KVM and enough disk"
+        required: true
+        default: "ubuntu-24.04"
+      create_issue_on_failure:
+        description: "Create/update an issue when non-PR E2E fails"
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: "0 5 * * 1"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  packages: read
+  actions: read
+
+concurrency:
+  group: luks-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  luks-e2e:
+    name: LUKS E2E
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-24.04' }}
+    timeout-minutes: 350
+
+    env:
+      PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile || 'profiles/dakota-dual.profile.json' }}
+      INSTALLER_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.installer_channel || 'dev' }}
+      WORK_DIR: /var/tmp/superiso-luks-e2e/work
+      TEST_DIR: /var/tmp/superiso-luks-e2e/test
+      SUPERISO_TEST_MEMORY: "8192"
+      SUPERISO_TEST_CPUS: "4"
+      SUPERISO_LUKS_PASSPHRASE: testpassphrase
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure screenshots branch exists
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          if gh api "/repos/${REPO}/git/refs/heads/ci-screenshots" >/dev/null 2>&1; then
+            echo "ci-screenshots branch already exists"
+          else
+            DEFAULT=$(gh api "/repos/${REPO}" --jq '.default_branch')
+            SHA=$(gh api "/repos/${REPO}/git/refs/heads/${DEFAULT}" --jq '.object.sha')
+            gh api --method POST "/repos/${REPO}/git/refs" \
+              -f "ref=refs/heads/ci-screenshots" \
+              -f "sha=${SHA}"
+          fi
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            podman buildah skopeo jq mtools xorriso squashfs-tools erofs-utils \
+            qemu-system-x86 qemu-utils ovmf socat sshpass imagemagick
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: tacklebox/go.mod
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Configure podman storage
+        run: |
+          podman system reset -f || true
+          mkdir -p /var/tmp/containers-storage /var/tmp/containers-run ~/.config/containers
+          cat > ~/.config/containers/storage.conf <<'CONF'
+          [storage]
+          driver = "overlay"
+          graphroot = "/var/tmp/containers-storage"
+          runroot = "/var/tmp/containers-run"
+          CONF
+          podman info --format 'Driver={{.Store.GraphDriverName}} GraphRoot={{.Store.GraphRoot}}'
+          df -h / /var/tmp
+          test -e /dev/kvm || { echo "::error::/dev/kvm is not available on this runner"; exit 1; }
+
+      - name: Prepare profile
+        id: profile
+        run: |
+          mkdir -p "$WORK_DIR" "$TEST_DIR"
+          PROFILE_UNDER_TEST="${WORK_DIR}/profile-under-test.json"
+          ISO="${WORK_DIR}/superiso-luks-e2e.iso"
+          OUTPUT_BASE="${WORK_DIR}/.tbx-build"
+          jq \
+            --arg channel "$INSTALLER_CHANNEL" \
+            --arg iso "$ISO" \
+            --arg output_base "$OUTPUT_BASE" \
+            '.installer.channel = $channel | .output_iso = $iso | .output_base = $output_base' \
+            "$PROFILE" > "$PROFILE_UNDER_TEST"
+          echo "profile=${PROFILE_UNDER_TEST}" >> "$GITHUB_OUTPUT"
+          echo "iso=${ISO}" >> "$GITHUB_OUTPUT"
+
+      - name: Build ISO
+        id: build
+        run: |
+          START=$(date +%s)
+          scripts/build-profile.sh "${{ steps.profile.outputs.profile }}" "$WORK_DIR"
+          ISO="${{ steps.profile.outputs.iso }}"
+          echo "duration=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
+          echo "iso_size=$(stat -c%s "$ISO")" >> "$GITHUB_OUTPUT"
+
+      - name: Run LUKS E2E
+        id: luks_test
+        continue-on-error: true
+        env:
+          SUPERISO_TEST_DIR: ${{ env.TEST_DIR }}
+        run: |
+          START=$(date +%s)
+          scripts/test-fisherman-luks-install.sh "${{ steps.profile.outputs.iso }}"
+          echo "duration=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
+
+      - name: Convert and publish screenshots
+        if: always()
+        continue-on-error: true
+        id: screenshots
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          sudo chmod -R a+rX "$TEST_DIR/logs" 2>/dev/null || true
+
+          commit_png() {
+            local src_ppm="$1" label="$2" out_var="$3"
+            [[ -f "$src_ppm" ]] || return 0
+            local png="${TEST_DIR}/${label}.png"
+            convert "$src_ppm" "$png" 2>/dev/null || return 0
+
+            local path_in_repo="luks-e2e/${RUN_ID}/${label}.png"
+            local existing_sha
+            existing_sha=$(gh api "/repos/${REPO}/contents/${path_in_repo}?ref=ci-screenshots" --jq '.sha' 2>/dev/null || echo "")
+
+            local content
+            content=$(base64 -w0 "$png")
+            jq -n \
+              --arg msg "LUKS E2E screenshot: ${label} (run ${RUN_ID})" \
+              --arg content "$content" \
+              --arg branch "ci-screenshots" \
+              --arg sha "$existing_sha" \
+              'if $sha != "" then
+                {message:$msg, content:$content, branch:$branch, sha:$sha}
+              else
+                {message:$msg, content:$content, branch:$branch}
+              end' | gh api --method PUT "/repos/${REPO}/contents/${path_in_repo}" --input - >/dev/null
+
+            local url="https://raw.githubusercontent.com/${REPO}/ci-screenshots/${path_in_repo}"
+            echo "${out_var}=${url}" >> "$GITHUB_OUTPUT"
+          }
+
+          commit_png "$TEST_DIR/logs/luks-screenshot-live.ppm" "live-boot" "live_url"
+          commit_png "$TEST_DIR/logs/luks-screenshot-plymouth.ppm" "plymouth" "plymouth_url"
+          commit_png "$TEST_DIR/logs/luks-screenshot-final.ppm" "final-boot" "final_url"
+
+      - name: Post PR comment
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          LIVE_URL: ${{ steps.screenshots.outputs.live_url }}
+          PLYMOUTH_URL: ${{ steps.screenshots.outputs.plymouth_url }}
+          FINAL_URL: ${{ steps.screenshots.outputs.final_url }}
+          BUILD_S: ${{ steps.build.outputs.duration }}
+          LUKS_S: ${{ steps.luks_test.outputs.duration }}
+          ISO_BYTES: ${{ steps.build.outputs.iso_size }}
+          TEST_RESULT: ${{ steps.luks_test.outcome }}
+          INSTALLER_CHANNEL: ${{ env.INSTALLER_CHANNEL }}
+          PROFILE: ${{ env.PROFILE }}
+        with:
+          script: |
+            const result = process.env.TEST_RESULT || 'unknown';
+            const pass = result === 'success';
+            const icon = pass ? '✅' : '❌';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const fmtDur = s => s ? `${Math.floor(Number(s) / 60)}m ${Number(s) % 60}s` : 'N/A';
+            const fmtMiB = b => b ? `${(Number(b) / 1024 / 1024).toFixed(0)} MiB` : 'N/A';
+            const img = (url, alt) => url ? `**${alt}**\n![${alt}](${url})\n` : '';
+
+            const body = [
+              `## ${icon} SuperISO LUKS E2E — ${pass ? 'PASSED' : 'FAILED'}`,
+              '',
+              '| Field | Value |',
+              '|---|---|',
+              `| Profile | \`${process.env.PROFILE}\` |`,
+              `| Installer channel | \`${process.env.INSTALLER_CHANNEL}\` |`,
+              `| ISO build | ${fmtMiB(process.env.ISO_BYTES)} · ${fmtDur(process.env.BUILD_S)} |`,
+              `| LUKS E2E | ${fmtDur(process.env.LUKS_S)} |`,
+              `| Result | ${icon} ${result} |`,
+              '',
+              img(process.env.LIVE_URL, 'Live boot'),
+              img(process.env.PLYMOUTH_URL, 'Plymouth passphrase prompt'),
+              img(process.env.FINAL_URL, 'Installed system after unlock'),
+              `<sub>[Workflow run](${runUrl})</sub>`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+
+      - name: Create or update failure issue
+        if: >-
+          always() &&
+          steps.luks_test.outcome == 'failure' &&
+          github.event_name != 'pull_request' &&
+          (github.event_name != 'workflow_dispatch' || inputs.create_issue_on_failure)
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          LIVE_URL: ${{ steps.screenshots.outputs.live_url }}
+          PLYMOUTH_URL: ${{ steps.screenshots.outputs.plymouth_url }}
+          FINAL_URL: ${{ steps.screenshots.outputs.final_url }}
+          PROFILE: ${{ env.PROFILE }}
+          INSTALLER_CHANNEL: ${{ env.INSTALLER_CHANNEL }}
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = `SuperISO LUKS E2E failed: ${process.env.PROFILE} (${process.env.INSTALLER_CHANNEL})`;
+            const marker = '<!-- superiso-luks-e2e-failure -->';
+            const img = (url, alt) => url ? `\n**${alt}**\n![${alt}](${url})\n` : '';
+            const body = [
+              marker,
+              `The SuperISO LUKS end-to-end workflow failed.`,
+              '',
+              `- Profile: \`${process.env.PROFILE}\``,
+              `- Installer channel: \`${process.env.INSTALLER_CHANNEL}\``,
+              `- Run: ${runUrl}`,
+              img(process.env.LIVE_URL, 'Live boot'),
+              img(process.env.PLYMOUTH_URL, 'Plymouth passphrase prompt'),
+              img(process.env.FINAL_URL, 'Installed system after unlock'),
+            ].join('\n');
+
+            for (const label of ['ci', 'luks-e2e']) {
+              try {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label,
+                  color: label === 'ci' ? '0366d6' : '5319e7',
+                });
+              } catch (error) {
+                if (error.status !== 422) throw error;
+              }
+            }
+
+            const {data: issues} = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ci,luks-e2e',
+              per_page: 20,
+            });
+            const existing = issues.find(issue => issue.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['ci', 'luks-e2e'],
+              });
+            }
+
+      - name: Write job summary
+        if: always()
+        run: |
+          RESULT="${{ steps.luks_test.outcome }}"
+          ICON="$( [ "$RESULT" = "success" ] && echo "✅" || echo "❌" )"
+          {
+            echo "## ${ICON} SuperISO LUKS E2E — ${RESULT}"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Profile | \`${PROFILE}\` |"
+            echo "| Installer channel | \`${INSTALLER_CHANNEL}\` |"
+            echo "| ISO size | $(numfmt --to=iec "${{ steps.build.outputs.iso_size }}" 2>/dev/null || echo N/A) |"
+            echo "| Build time | ${{ steps.build.outputs.duration }}s |"
+            echo "| LUKS test time | ${{ steps.luks_test.outputs.duration }}s |"
+            echo "| Screenshots branch | \`ci-screenshots\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload E2E logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: luks-e2e-logs
+          path: |
+            ${{ env.TEST_DIR }}/logs/**
+            ${{ env.WORK_DIR }}/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail if LUKS E2E failed
+        if: steps.luks_test.outcome == 'failure'
+        run: |
+          echo "::error::LUKS end-to-end test failed; see screenshots and logs"
+          exit 1
