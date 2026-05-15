@@ -28,7 +28,16 @@ echo ">>> Generating profile artifacts: ${PROFILE}"
 
 RECIPE="${WORK_DIR}/${NAME}.tacklebox.json"
 MATRIX="${WORK_DIR}/${NAME}.live-build-matrix.json"
-TBX="${REPO}/tacklebox/tacklebox"
+TBX="${SUPERISO_TACKLEBOX_BIN:-}"
+if [[ -z "$TBX" ]]; then
+    if command -v tacklebox >/dev/null 2>&1; then
+        TBX="$(command -v tacklebox)"
+    else
+        echo ">>> Installing tacklebox binary from module path..."
+        go install github.com/tuna-os/tacklebox/cmd/tacklebox@latest
+        TBX="$(go env GOPATH)/bin/tacklebox"
+    fi
+fi
 
 ISO="$(jq -r '.output_iso // empty' "$MATRIX")"
 if [[ -z "$ISO" ]]; then
