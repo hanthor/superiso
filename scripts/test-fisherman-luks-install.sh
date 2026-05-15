@@ -254,6 +254,9 @@ if [[ "$install_result" -ne 0 ]]; then
     echo ">>> /var/log/bootc-installer.log" >&2
     sshpass -p live ssh "${ssh_base[@]}" -p "$PORT" liveuser@127.0.0.1 \
         "sudo cat /var/log/bootc-installer.log" 2>/dev/null || true
+    echo ">>> journalctl -b" >&2
+    sshpass -p live ssh "${ssh_base[@]}" -p "$PORT" liveuser@127.0.0.1 \
+        "sudo journalctl -b --no-pager -n 300" 2>/dev/null || true
     echo ">>> /tmp/fisherman-luks-install.log" >&2
     sshpass -p live ssh "${ssh_base[@]}" -p "$PORT" liveuser@127.0.0.1 \
         "cat /tmp/fisherman-luks-install.log" 2>/dev/null || true
