@@ -32,6 +32,13 @@ TBX="${SUPERISO_TACKLEBOX_BIN:-}"
 if [[ -z "$TBX" ]]; then
     if command -v tacklebox >/dev/null 2>&1; then
         TBX="$(command -v tacklebox)"
+   elif [[ -f "${REPO}/tacklebox/go.mod" ]]; then
+       echo ">>> Installing tacklebox binary from local checkout..."
+       (
+           cd "${REPO}/tacklebox"
+           go install ./cmd/tacklebox
+       )
+       TBX="$(go env GOPATH)/bin/tacklebox"
     else
         echo ">>> Installing tacklebox binary from module path..."
         go install github.com/tuna-os/tacklebox/cmd/tacklebox@latest
