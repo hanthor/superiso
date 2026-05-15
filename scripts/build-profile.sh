@@ -40,10 +40,19 @@ if [[ -z "$TBX" ]]; then
        )
        TBX="$(go env GOPATH)/bin/tacklebox"
     else
-        echo ">>> Installing tacklebox binary from module path..."
-        go install github.com/tuna-os/tacklebox/cmd/tacklebox@latest
-        TBX="$(go env GOPATH)/bin/tacklebox"
-    fi
+       TBX_REF="${SUPERISO_TACKLEBOX_REF:-}"
+       if [[ -z "$TBX_REF" ]] && command -v git >/dev/null 2>&1; then
+           TBX_REF="$(git -C "${REPO}" ls-tree -d HEAD tacklebox 2>/dev/null | awk '{print $3}')"
+       fi
+       if [[ -n "$TBX_REF" ]]; then
+           echo ">>> Installing tacklebox binary from module path at ref ${TBX_REF}..."
+           go install "github.com/tuna-os/tacklebox/cmd/tacklebox@${TBX_REF}"
+       else
+           echo ">>> Installing tacklebox binary from module path (@latest)..."
+           go install github.com/tuna-os/tacklebox/cmd/tacklebox@latest
+       fi
+       TBX="$(go env GOPATH)/bin/tacklebox"
+   fi
 fi
 
 ISO="$(jq -r '.output_iso // empty' "$MATRIX")"
