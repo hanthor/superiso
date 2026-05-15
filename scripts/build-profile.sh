@@ -73,7 +73,16 @@ if [[ "${SUPERISO_SKIP_PULL:-0}" != "1" ]]; then
             echo ">>> Already present: $ref"
         else
             echo ">>> Pulling: $ref (timeout=${PULL_TIMEOUT}s)"
-            timeout "$PULL_TIMEOUT" podman pull --retry 5 --retry-delay 20s "$ref"
+            retry=0
+            until timeout "$PULL_TIMEOUT" podman pull "$ref"; do
+                retry=$((retry + 1))
+                if (( retry >= 5 )); then
+                    echo "ERROR: failed to pull $ref after ${retry} attempts" >&2
+                    exit 1
+                fi
+                echo ">>> Retry ${retry}/5 for $ref"
+                sleep 20
+            done
         fi
     done
 else
