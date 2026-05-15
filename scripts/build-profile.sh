@@ -107,6 +107,7 @@ jq -r '
     fi
 
     echo ">>> Live image: id=${id} family=${family} base=${base_image} tag=${image}"
+    BUILDAH_ISOLATION="${SUPERISO_BUILDAH_ISOLATION:-chroot}" \
     podman build \
         --build-arg "BASE_IMAGE=${base_image}" \
         --build-arg "FAMILY=${family}" \
