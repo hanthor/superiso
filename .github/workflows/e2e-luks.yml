@@ -90,8 +90,19 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
+          BOOT_PKG=""
+          for pkg in systemd-boot-efi systemd-boot-unsigned systemd-boot; do
+            if apt-cache show "$pkg" >/dev/null 2>&1; then
+              BOOT_PKG="$pkg"
+              break
+            fi
+          done
+          if [[ -z "$BOOT_PKG" ]]; then
+            echo "::error::No systemd-boot package available on this runner"
+            exit 1
+          fi
           sudo apt-get install -y -qq \
-            podman buildah skopeo jq mtools xorriso squashfs-tools erofs-utils systemd-boot-efi \
+            podman buildah skopeo jq mtools xorriso squashfs-tools erofs-utils "$BOOT_PKG" \
             qemu-system-x86 qemu-utils ovmf socat sshpass imagemagick
 
       - name: Set up Go
