@@ -1,0 +1,58 @@
+{
+  "media_name": "Dakota-Dual",
+  "size": "32G",
+  "compression": "fast",
+  "output_iso": "/var/tmp/dakota-dual/dakota-dual.iso",
+  "output_base": "/var/tmp/dakota-dual/.tbx-build",
+  "installer": {
+    "channel": "dev"
+  },
+  "defaults": {
+    "family": "dakota-nvidia",
+    "image": "ghcr.io/projectbluefin/dakota-nvidia:latest"
+  },
+  "live_environments": [
+    {
+      "id": "dakota-nvidia",
+      "family": "dakota-nvidia",
+      "desktop": "gnome",
+      "base_image": "ghcr.io/projectbluefin/dakota-nvidia:latest",
+      "image": "localhost/superiso-live-dakota-dual:nvidia",
+      "modes": ["live"]
+    }
+  ],
+  "images": [
+    {
+      "ref": "ghcr.io/projectbluefin/dakota-nvidia:latest",
+      "name": "Dakota NVIDIA",
+      "desc": "Project Bluefin Dakota with NVIDIA support",
+      "filesystem": "btrfs",
+      "composefs": true,
+      "family": "dakota-nvidia",
+      "live": true,
+      "recommend_when": {
+        "gpu_vendor": "nvidia"
+      },
+      "recommend_priority": 90,
+      "hardware_notes": "Recommended by Tuna Installer when NVIDIA hardware is detected."
+    },
+    {
+      "ref": "ghcr.io/projectbluefin/dakota:latest",
+      "name": "Dakota",
+      "desc": "Project Bluefin Dakota for AMD and Intel graphics",
+      "filesystem": "btrfs",
+      "composefs": true,
+      "family": "dakota",
+      "live": false,
+      "recommend_when": {
+        "fallback": true
+      },
+      "recommend_priority": 10,
+      "hardware_notes": "Recommended by Tuna Installer when NVIDIA hardware is not detected."
+    }
+  ],
+  "ci": {
+    "default_install_image": "ghcr.io/projectbluefin/dakota-nvidia:latest",
+    "assert_catalog_local": true
+  }
+}

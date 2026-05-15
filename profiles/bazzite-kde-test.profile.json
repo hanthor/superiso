@@ -1,0 +1,39 @@
+{
+  "media_name": "Bazzite-KDE-Test",
+  "size": "32G",
+  "compression": "fast",
+  "output_iso": "/var/tmp/bazzite-kde-test/bazzite-kde-test.iso",
+  "output_base": "/var/tmp/bazzite-kde-test/.tbx-build",
+  "installer": {
+    "channel": "dev"
+  },
+  "defaults": {
+    "family": "bazzite-kde-nvidia",
+    "image": "ghcr.io/ublue-os/bazzite-nvidia:stable"
+  },
+  "live_environments": [
+    {
+      "id": "bazzite-kde-nvidia",
+      "family": "bazzite-kde-nvidia",
+      "desktop": "kde",
+      "base_image": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+      "image": "localhost/superiso-live-bazzite-kde-test:kde",
+      "modes": ["live"]
+    }
+  ],
+  "images": [
+    {
+      "ref": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+      "name": "Bazzite KDE NVIDIA",
+      "desc": "KDE Plasma, NVIDIA drivers, gaming-focused",
+      "filesystem": "btrfs",
+      "composefs": true,
+      "family": "bazzite-kde-nvidia",
+      "live": true
+    }
+  ],
+  "ci": {
+    "default_install_image": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+    "assert_catalog_local": true
+  }
+}

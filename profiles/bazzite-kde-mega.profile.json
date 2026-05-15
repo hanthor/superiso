@@ -1,0 +1,75 @@
+{
+  "media_name": "Bazzite-KDE-Mega",
+  "size": "64G",
+  "compression": "fast",
+  "output_iso": "/var/tmp/bazzite-kde-mega/bazzite-kde-mega.iso",
+  "output_base": "/var/tmp/bazzite-kde-mega/.tbx-build",
+  "installer": {
+    "channel": "dev"
+  },
+  "defaults": {
+    "family": "bazzite-kde-nvidia",
+    "image": "ghcr.io/ublue-os/bazzite-nvidia:stable"
+  },
+  "live_environments": [
+    {
+      "id": "bazzite-kde-nvidia",
+      "family": "bazzite-kde-nvidia",
+      "desktop": "kde",
+      "base_image": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+      "image": "localhost/superiso-live-bazzite-kde-mega:kde-nvidia",
+      "modes": ["live"]
+    }
+  ],
+  "images": [
+    {
+      "ref": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+      "name": "Bazzite KDE NVIDIA",
+      "desc": "KDE Plasma gaming image with NVIDIA support",
+      "filesystem": "btrfs",
+      "composefs": false,
+      "family": "bazzite-kde-nvidia",
+      "live": true,
+      "recommend_when": {
+        "gpu_vendor": "nvidia"
+      },
+      "recommend_priority": 90,
+      "hardware_notes": "Recommended by Tuna Installer when NVIDIA hardware is detected.",
+      "install_notes": "Installed with composefs disabled until bootc handles Bazzite composefs SELinux policy regexes."
+    },
+    {
+      "ref": "ghcr.io/ublue-os/bazzite:stable",
+      "name": "Bazzite KDE",
+      "desc": "KDE Plasma gaming image for AMD and Intel graphics",
+      "filesystem": "btrfs",
+      "composefs": false,
+      "family": "bazzite-kde",
+      "live": false,
+      "recommend_when": {
+        "fallback": true
+      },
+      "recommend_priority": 10,
+      "hardware_notes": "Recommended by Tuna Installer for general AMD and Intel desktop/laptop systems.",
+      "install_notes": "Installed with composefs disabled until bootc handles Bazzite composefs SELinux policy regexes."
+    },
+    {
+      "ref": "ghcr.io/ublue-os/bazzite-deck:stable",
+      "name": "Bazzite Deck",
+      "desc": "Steam Deck and handheld gaming image",
+      "filesystem": "btrfs",
+      "composefs": false,
+      "family": "bazzite-deck",
+      "live": false,
+      "recommend_when": {
+        "form_factor": "deck"
+      },
+      "recommend_priority": 100,
+      "hardware_notes": "Recommended by Tuna Installer for Steam Deck or compatible handheld hardware.",
+      "install_notes": "Installed with composefs disabled until bootc handles Bazzite composefs SELinux policy regexes."
+    }
+  ],
+  "ci": {
+    "default_install_image": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+    "assert_catalog_local": true
+  }
+}

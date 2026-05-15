@@ -16,16 +16,22 @@ case "$profile_name" in
     gold-*) profile="Gold SuperISO" ;;
 esac
 default_ref=""
+default_composefs=true
 fallback_ref=""
+fallback_composefs=true
 count=0
 
 while IFS=$'\t' read -r ref name desc fs cfs family live; do
     case "$ref" in ''|\#*) continue ;; esac
     count=$((count + 1))
-    [[ -z "$fallback_ref" ]] && fallback_ref="$ref"
+    if [[ -z "$fallback_ref" ]]; then
+        fallback_ref="$ref"
+        fallback_composefs="$cfs"
+    fi
     if [[ "$family" == "$DEFAULT_FAMILY" ]]; then
         if [[ -z "$default_ref" || "$live" == "true" ]]; then
             default_ref="$ref"
+            default_composefs="$cfs"
         fi
     fi
     case "$family" in
@@ -36,7 +42,10 @@ while IFS=$'\t' read -r ref name desc fs cfs family live; do
     esac
 done < "$TSV"
 
-[[ -z "$default_ref" ]] && default_ref="$fallback_ref"
+if [[ -z "$default_ref" ]]; then
+    default_ref="$fallback_ref"
+    default_composefs="$fallback_composefs"
+fi
 
 default_slug=$(printf '%s' "$default_ref" | sed -E 's|.*/([^/:]+).*|\1|; s|[^a-zA-Z0-9_-]|-|g')
 case "$profile_name" in
@@ -58,6 +67,7 @@ jq -n \
   --arg count "$count" \
   --arg logo "$logo" \
   --arg welcome "$welcome" \
+  --argjson compose "$default_composefs" \
   '{
     log_file:"/var/log/bootc-installer.log",
     distro_name:$distro,
@@ -65,7 +75,7 @@ jq -n \
     imgref:$imgref,
     local_imgref:$local,
     bootloader:"systemd",
-    composeFsBackend:true,
+    composeFsBackend:$compose,
     tour:{
       welcome:{
         image:$welcome,
