@@ -43,8 +43,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: luks-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'workflow_dispatch' && format('luks-e2e-manual-{0}', github.run_id) || format('luks-e2e-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   luks-e2e:
