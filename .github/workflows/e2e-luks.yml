@@ -91,7 +91,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
-            podman buildah skopeo jq mtools xorriso squashfs-tools erofs-utils \
+            podman buildah skopeo jq mtools xorriso squashfs-tools erofs-utils systemd-boot-efi \
             qemu-system-x86 qemu-utils ovmf socat sshpass imagemagick
 
       - name: Set up Go
