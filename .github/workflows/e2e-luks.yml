@@ -97,7 +97,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: tacklebox/go.mod
+          go-version: "1.26.3"
 
       - name: Log in to GHCR
         run: |
