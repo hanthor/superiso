@@ -222,7 +222,7 @@ jq -n \
       flatpaks:[]
     }' > "$RECIPE"
 
-timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" sudo /usr/local/bin/fisherman "$RECIPE" 2>&1 | tee /tmp/fisherman-luks-install.log
+timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF /usr/local/bin/fisherman "$RECIPE" 2>&1 | tee /tmp/fisherman-luks-install.log
 
 if [[ "$SUPERISO_LUKS_BOOTLOADER" == "systemd" ]]; then
     ESP=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { print $1; exit }')

@@ -82,9 +82,9 @@ echo ">>> Installing ${ref} → ${disk}"
 echo ">>>   filesystem=${fs}  composefs=${cfs}"
 echo ">>>   backend=fisherman"
 echo
-sudo /usr/local/bin/fisherman validate "$recipe"
+sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF /usr/local/bin/fisherman validate "$recipe"
 echo
 read -rp "This will erase ${disk}. Type INSTALL to continue: " confirm
 [[ "$confirm" == "INSTALL" ]] || { echo "Aborted."; exit 1; }
 
-exec sudo /usr/local/bin/fisherman "$recipe"
+exec sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF /usr/local/bin/fisherman "$recipe"
