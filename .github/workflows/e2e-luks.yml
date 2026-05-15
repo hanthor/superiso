@@ -333,6 +333,8 @@ jobs:
 
       - name: Upload E2E logs
         if: always()
+        continue-on-error: true
+        timeout-minutes: 3
         uses: actions/upload-artifact@v4
         with:
           name: luks-e2e-logs
