@@ -189,6 +189,7 @@ read -r IMAGE FS COMPOSE FAMILY < <(
 if [[ -n "${SUPERISO_LUKS_COMPOSEFS}" ]]; then
     COMPOSE="${SUPERISO_LUKS_COMPOSEFS}"
 fi
+export CONTAINERS_STORAGE_CONF="${CONTAINERS_STORAGE_CONF:-/etc/containers/storage.conf}"
 
 echo ">>> Verifying local catalog images"
 jq -r '.images[].imgref' "$IMG_JSON" | while read -r ref; do
@@ -222,26 +223,75 @@ jq -n \
       flatpaks:[]
     }' > "$RECIPE"
 
+echo ">>> Recipe JSON:"
+jq . "$RECIPE"
+echo ">>> Guest containers/storage.conf:"
+sudo cat /etc/containers/storage.conf
+echo ">>> Guest superiso-store mount:"
+findmnt /var/lib/superiso-store || true
+echo ">>> Fisherman validate preflight:"
+sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+    /usr/local/bin/fisherman validate "$RECIPE" || true
+
 timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF /usr/local/bin/fisherman "$RECIPE" 2>&1 | tee /tmp/fisherman-luks-install.log
 
-if [[ "$SUPERISO_LUKS_BOOTLOADER" == "systemd" ]]; then
-    ESP=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { print $1; exit }')
-    if [[ -b "$ESP" ]]; then
-        TMP=$(mktemp -d)
-        trap 'sudo umount "$TMP" 2>/dev/null || true; rmdir "$TMP" 2>/dev/null || true; rm -f "$RECIPE"' EXIT
-        sudo mount "$ESP" "$TMP"
-        COUNT=0
-        for entry in "$TMP"/loader/entries/*.conf "$TMP"/EFI/loader/entries/*.conf; do
-            [[ -f "$entry" ]] || continue
-            if grep -q '^options ' "$entry" && ! grep -q 'console=tty0' "$entry"; then
-                sudo sed -i 's|^options .*|& console=tty0 console=ttyS0|' "$entry"
-                COUNT=$((COUNT + 1))
-            fi
-        done
-        echo ">>> Patched serial console into $COUNT BLS entries"
-        sudo umount "$TMP"
-        rmdir "$TMP"
-    fi
+# Post-install BLS fixup: add rd.luks.uuid= and console= to every BLS entry.
+#
+# Fisherman correctly sets up the LUKS partition but does not inject
+# rd.luks.uuid= into the BLS entries, so dracut never opens the LUKS
+# container and boot drops to emergency shell.  We detect the LUKS partition
+# from the target disk, extract its UUID, and patch every BLS entry in the
+# /boot partition (works for both grub2 and systemd-boot since both use BLS).
+# Post-install BLS fixup: add rd.luks.uuid= and console= to every BLS entry.
+#
+# Fisherman correctly sets up the LUKS partition but does not inject
+# rd.luks.uuid= into the BLS entries, so dracut never opens the LUKS
+# container and boot drops to emergency shell.  We detect the LUKS partition
+# by filesystem type and extract its UUID, then patch every BLS entry in the
+# /boot partition (works for both grub2 and systemd-boot since both use BLS).
+BOOT_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '($2 == "ext4" || $2 == "xfs") { print $1; exit }')
+if [[ -z "$BOOT_PART" ]]; then
+    # Fallback: second partition by position
+    BOOT_PART=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { parts[++n]=$1 } END { print parts[2] }')
+fi
+LUKS_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '$2 == "crypto_LUKS" { print $1; exit }')
+if [[ -z "$LUKS_PART" ]]; then
+    # Fallback: third partition by position
+    LUKS_PART=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { parts[++n]=$1 } END { print parts[3] }')
+fi
+LUKS_UUID=""
+if [[ -b "$LUKS_PART" ]]; then
+    LUKS_UUID=$(sudo blkid -s UUID -o value "$LUKS_PART" 2>/dev/null || true)
+fi
+echo ">>> Boot partition: ${BOOT_PART:-unknown}  LUKS partition: ${LUKS_PART:-unknown}  LUKS UUID: ${LUKS_UUID:-unknown}"
+
+if [[ -b "$BOOT_PART" ]]; then
+    TMP=$(mktemp -d)
+    trap 'sudo umount "$TMP" 2>/dev/null || true; rmdir "$TMP" 2>/dev/null || true; rm -f "$RECIPE"' EXIT
+    sudo mount "$BOOT_PART" "$TMP"
+    COUNT=0
+    for entry in \
+        "$TMP"/loader/entries/*.conf \
+        "$TMP"/EFI/loader/entries/*.conf \
+        "$TMP"/boot/loader/entries/*.conf; do
+        [[ -f "$entry" ]] || continue
+        if ! grep -q '^options ' "$entry"; then
+            continue
+        fi
+        # Add rd.luks.uuid if missing and we know the LUKS UUID.
+        if [[ -n "$LUKS_UUID" ]] && ! grep -q "rd.luks.uuid=$LUKS_UUID" "$entry"; then
+            sudo sed -i "s|^options .*|& rd.luks.uuid=${LUKS_UUID}|" "$entry"
+        fi
+        # Add serial console if missing.
+        if ! grep -q 'console=ttyS0' "$entry"; then
+            sudo sed -i 's|^options .*|& console=tty0 console=ttyS0|' "$entry"
+        fi
+        COUNT=$((COUNT + 1))
+    done
+    echo ">>> Patched $COUNT BLS entries (rd.luks.uuid + serial console)"
+    sudo cat "$TMP"/loader/entries/*.conf 2>/dev/null || true
+    sudo umount "$TMP"
+    rmdir "$TMP"
 fi
 
 lsblk -f "$DISK"

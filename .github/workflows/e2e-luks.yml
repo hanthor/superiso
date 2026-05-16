@@ -60,6 +60,9 @@ jobs:
       SUPERISO_TEST_MEMORY: "8192"
       SUPERISO_TEST_CPUS: "4"
       SUPERISO_LUKS_PASSPHRASE: testpassphrase
+      # composefs install fails on Bazzite's SELinux policy regex in bootc;
+      # keep false until bootc composefs + Bazzite SELinux is fixed upstream.
+      SUPERISO_LUKS_COMPOSEFS: "false"
 
     steps:
       - name: Checkout
