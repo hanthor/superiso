@@ -233,7 +233,34 @@ echo ">>> Fisherman validate preflight:"
 sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
     /usr/local/bin/fisherman validate "$RECIPE" || true
 
-timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF /usr/local/bin/fisherman "$RECIPE" 2>&1 | tee /tmp/fisherman-luks-install.log
+echo ">>> Fisherman backend version:"
+sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+    /usr/local/bin/fisherman version || true
+
+# Support both CLI shapes:
+# - newer fisherman: fisherman <recipe.json>
+# - legacy fisherman: fisherman install <recipe.json>
+set +e
+timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" \
+    sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+    /usr/local/bin/fisherman "$RECIPE" 2>&1 | tee /tmp/fisherman-luks-install.log
+FISHERMAN_RC=${PIPESTATUS[0]}
+set -e
+
+if [[ "$FISHERMAN_RC" -ne 0 ]]; then
+    echo ">>> Fisherman direct recipe mode failed (rc=${FISHERMAN_RC}); retrying legacy install subcommand"
+    set +e
+    timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" \
+        sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+        /usr/local/bin/fisherman install "$RECIPE" 2>&1 | tee -a /tmp/fisherman-luks-install.log
+    FISHERMAN_RC=${PIPESTATUS[0]}
+    set -e
+fi
+
+if [[ "$FISHERMAN_RC" -ne 0 ]]; then
+    echo "ERROR: fisherman exited with rc=${FISHERMAN_RC}" >&2
+    exit "$FISHERMAN_RC"
+fi
 
 # Post-install BLS fixup: add rd.luks.uuid= and console= to every BLS entry.
 #
