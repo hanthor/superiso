@@ -243,18 +243,20 @@ sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_
 set +e
 timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" \
     sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
-    /usr/local/bin/fisherman "$RECIPE" 2>&1 | tee /tmp/fisherman-luks-install.log
-FISHERMAN_RC=${PIPESTATUS[0]}
+    /usr/local/bin/fisherman "$RECIPE" > /tmp/fisherman-luks-install.log 2>&1
+FISHERMAN_RC=$?
 set -e
+cat /tmp/fisherman-luks-install.log
 
 if [[ "$FISHERMAN_RC" -ne 0 ]]; then
     echo ">>> Fisherman direct recipe mode failed (rc=${FISHERMAN_RC}); retrying legacy install subcommand"
     set +e
     timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" \
         sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
-        /usr/local/bin/fisherman install "$RECIPE" 2>&1 | tee -a /tmp/fisherman-luks-install.log
-    FISHERMAN_RC=${PIPESTATUS[0]}
+        /usr/local/bin/fisherman install "$RECIPE" >> /tmp/fisherman-luks-install.log 2>&1
+    FISHERMAN_RC=$?
     set -e
+    cat /tmp/fisherman-luks-install.log
 fi
 
 if [[ "$FISHERMAN_RC" -ne 0 ]]; then
