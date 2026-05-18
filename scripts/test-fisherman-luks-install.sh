@@ -261,6 +261,15 @@ additionalimagestores = ["/var/lib/superiso-store"]
 EOF
 sudo cat "$STORAGE_CONF"
 
+# Pre-create /var/tmp/oci-cache directory for bootc composefs export
+# When composefs backend is enabled, bootc exports the image to an OCI layout
+# at /var/tmp/oci-cache inside the container. This directory must exist and be writable.
+if [[ "${SUPERISO_LUKS_COMPOSEFS}" == "true" ]]; then
+    echo ">>> Pre-creating /var/tmp/oci-cache for composefs image export"
+    sudo mkdir -p /var/tmp/oci-cache
+    sudo chmod 1777 /var/tmp/oci-cache
+fi
+
 # Support both CLI shapes:
 # - newer fisherman: fisherman <recipe.json>
 # - legacy fisherman: fisherman install <recipe.json>
