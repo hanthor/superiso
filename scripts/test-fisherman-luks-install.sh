@@ -312,7 +312,7 @@ echo ">>> Proceeding with post-install validation"
 # The kernel and cmdline are embedded in the UKI binary, so BLS patching is not needed
 # and the installation is complete as-is.
 #
-if [[ "${SUPERISO_LUKS_COMPOSEFS}" == "true" ]]; then
+if [[ "${SUPERISO_LUKS_COMPOSEFS:-false}" == "true" ]]; then
     echo ">>> ComposFS+LUKS installation uses UKI (immutable kernel) - no BLS patching needed"
     echo ">>> Installation is complete and ready to boot"
 else
