@@ -413,7 +413,14 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-echo ">>> Detecting LUKS prompt and unlocking installed system"
-sudo python3 "$(dirname "$0")/luks-unlock.py" "$INSTALLED_MONITOR" "$PASSPHRASE" "$INSTALLED_SERIAL" "$LOG_DIR"
+# For composefs+UKI: LUKS unlock happens at bootloader/UKI level, no console prompt
+# For ostree+LUKS: LUKS unlock happens in dracut, requires passphrase entry on serial console
+if [[ "${SUPERISO_LUKS_COMPOSEFS:-false}" == "true" ]]; then
+    echo ">>> ComposFS+UKI system - waiting for boot (no LUKS console prompt expected)"
+    python3 "$(dirname "$0")/wait_boot.py" "$INSTALLED_SERIAL"
+else
+    echo ">>> Detecting LUKS prompt and unlocking installed system"
+    sudo python3 "$(dirname "$0")/luks-unlock.py" "$INSTALLED_MONITOR" "$PASSPHRASE" "$INSTALLED_SERIAL" "$LOG_DIR"
+fi
 
 echo ">>> LUKS install and boot SUCCESS"
