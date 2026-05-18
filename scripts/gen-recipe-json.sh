@@ -76,6 +76,7 @@ jq -n \
     local_imgref:$local,
     bootloader:"systemd",
     composeFsBackend:$compose,
+    additionalImageStores:["/var/lib/superiso-store"],
     tour:{
       welcome:{
         image:$welcome,

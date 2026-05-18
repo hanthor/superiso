@@ -1,0 +1,46 @@
+# Gold SuperISO profile — fresh refs only (<=90 days old as of build validation).
+#
+# Live sessions:
+#   1. Bazzite KDE NVIDIA        ghcr.io/ublue-os/bazzite-nvidia:stable
+#   2. Aurora KDE NVIDIA Open   ghcr.io/ublue-os/aurora-nvidia-open:latest
+#   3. Bluefin GNOME NVIDIA Open ghcr.io/ublue-os/bluefin-nvidia-open:stable
+#
+# Policy:
+#   - overlay-driver shared containers-storage, not VFS
+#   - no Bluefin GTS, no Aurora GTS
+#   - refs older than 90 days are considered dead and excluded
+#   - Dakota is included as part of the Bluefin family/payload group
+#
+# Columns: ref<TAB>name<TAB>desc<TAB>filesystem<TAB>composefs<TAB>family<TAB>live
+
+# ── Live roots first ─────────────────────────────────────────────────────────
+ghcr.io/ublue-os/bazzite-nvidia:stable	Bazzite KDE NVIDIA	Gaming KDE, NVIDIA live/install	btrfs	true	bazzite-kde-nvidia	true
+ghcr.io/ublue-os/aurora-nvidia-open:latest	Aurora NVIDIA Open	KDE workstation, NVIDIA Open live/install	btrfs	true	aurora-nvidia-open	true
+ghcr.io/ublue-os/bluefin-nvidia-open:stable	Bluefin NVIDIA Open	GNOME workstation, NVIDIA Open live/install	btrfs	true	bluefin-nvidia-open	true
+
+# ── Bazzite fresh stable payloads ────────────────────────────────────────────
+ghcr.io/ublue-os/bazzite:stable	Bazzite KDE	Gaming KDE, AMD/Intel	btrfs	true	bazzite-kde	false
+ghcr.io/ublue-os/bazzite-gnome:stable	Bazzite GNOME	Gaming GNOME, AMD/Intel	btrfs	true	bazzite-gnome	false
+ghcr.io/ublue-os/bazzite-gnome-nvidia:stable	Bazzite GNOME NVIDIA	Gaming GNOME, NVIDIA	btrfs	true	bazzite-gnome-nvidia	false
+ghcr.io/ublue-os/bazzite-deck:stable	Bazzite Deck	Gaming handheld/Steam Deck image	btrfs	true	bazzite-deck	false
+ghcr.io/ublue-os/bazzite-deck-gnome:stable	Bazzite Deck GNOME	Gaming handheld/Steam Deck GNOME image	btrfs	true	bazzite-deck-gnome	false
+
+# ── Aurora fresh payloads; no GTS ────────────────────────────────────────────
+ghcr.io/ublue-os/aurora:latest	Aurora	KDE workstation, AMD/Intel latest	btrfs	true	aurora	false
+ghcr.io/ublue-os/aurora-dx:latest	Aurora DX	KDE developer workstation, AMD/Intel latest	btrfs	true	aurora-dx	false
+ghcr.io/ublue-os/aurora-dx-nvidia-open:latest	Aurora DX NVIDIA Open	KDE developer workstation, NVIDIA Open latest	btrfs	true	aurora-dx-nvidia-open	false
+ghcr.io/ublue-os/aurora:stable	Aurora Stable	KDE workstation stable	btrfs	true	aurora-stable	false
+
+# ── Bluefin fresh payloads; stable is primary, plus lts/lts-hwe/gdx ──────────
+ghcr.io/ublue-os/bluefin:stable	Bluefin Stable	GNOME workstation stable	btrfs	true	bluefin-stable	false
+ghcr.io/ublue-os/bluefin-dx:stable	Bluefin DX Stable	GNOME developer workstation stable	btrfs	true	bluefin-dx-stable	false
+ghcr.io/ublue-os/bluefin-dx-nvidia-open:stable	Bluefin DX NVIDIA Open Stable	GNOME developer workstation, NVIDIA Open stable	btrfs	true	bluefin-dx-nvidia-open	false
+ghcr.io/ublue-os/bluefin:lts	Bluefin LTS	GNOME workstation LTS	btrfs	true	bluefin-lts	false
+ghcr.io/ublue-os/bluefin-dx:lts	Bluefin DX LTS	GNOME developer workstation LTS	btrfs	true	bluefin-dx-lts	false
+ghcr.io/ublue-os/bluefin:lts-hwe	Bluefin LTS HWE	GNOME workstation LTS HWE kernel	btrfs	true	bluefin-lts-hwe	false
+ghcr.io/ublue-os/bluefin-dx:lts-hwe	Bluefin DX LTS HWE	GNOME developer workstation LTS HWE kernel	btrfs	true	bluefin-dx-lts-hwe	false
+ghcr.io/ublue-os/bluefin-gdx:lts	Bluefin GDX LTS	GNOME GDX workstation LTS	btrfs	true	bluefin-gdx-lts	false
+
+# ── Dakota as part of the Bluefin family group ───────────────────────────────
+ghcr.io/projectbluefin/dakota-nvidia:latest	Dakota NVIDIA	Project Bluefin Dakota, NVIDIA install	btrfs	true	bluefin-dakota-nvidia	false
+ghcr.io/projectbluefin/dakota:latest	Dakota	Project Bluefin Dakota, AMD/Intel install	btrfs	true	bluefin-dakota	false

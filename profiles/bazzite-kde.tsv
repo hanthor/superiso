@@ -1,0 +1,4 @@
+# Bazzite KDE-only ISO.
+ghcr.io/ublue-os/bazzite-nvidia:stable	Bazzite KDE NVIDIA	Gaming KDE, NVIDIA live/install	btrfs	true	bazzite-kde-nvidia	true
+ghcr.io/ublue-os/bazzite:stable	Bazzite KDE	Gaming KDE, AMD/Intel	btrfs	true	bazzite-kde	false
+ghcr.io/ublue-os/bazzite-deck:stable	Bazzite Deck	Gaming handheld/Steam Deck image	btrfs	true	bazzite-deck	false

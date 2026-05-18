@@ -359,3 +359,25 @@ across runs — don't delete it.
 5. **Host `/tmp` was a 48 GB tmpfs that overflowed** with serial logs +
    QEMU disk images, breaking shell forks at the system level. Always
    put large QEMU images on `/var/tmp` (not `/tmp`) and rotate logs.
+
+### 2026-05-12 — End-to-end install test from Bazzite Full ISO
+
+- ✅ ISO boots in QEMU/UEFI — all 3 live envs in sd-boot menu
+- ✅ All 6 Bazzite variants visible via `sudo podman images` (offline store)
+- ✅ bootc-installer Flatpak present, fisherman symlinked
+- ✅ `var-tmp.mount` 16 GiB tmpfs for installer scratch
+- ✅ Bazzite KDE (AMD/Intel) installed offline → SSH'd into running system
+  - OS: Bazzite 44.20260511.0 (Kinoite), kernel 6.19.14-ogc2.1.fc44.x86_64
+  - bootc deployment: ghcr.io/ublue-os/bazzite:stable @ sha256:e27048d3...
+  - No network access required during install
+
+**GRUB + btrfs block-group-tree**: GRUB 2.12 can read btrfs (it found the
+BLS entries) but refuses to load the kernel when the filesystem has the
+`compat_ro` block-group-tree feature (0x400, default in btrfs-progs 6.19+).
+`bootc install to-disk --filesystem btrfs` puts `/boot` on the btrfs root
+partition, so GRUB must read btrfs to load vmlinuz → fails.
+Fisherman's layout (separate 1 GiB ext4 `/boot` + btrfs `/`) avoids this
+entirely: GRUB reads ext4 `/boot`, never touches btrfs.
+→ **Use `--filesystem ext4` with `bootc install to-disk` until GRUB gains
+BGT support** (no upstream patch merged as of 2026-05-12), OR use fisherman
+which creates the correct layout automatically.

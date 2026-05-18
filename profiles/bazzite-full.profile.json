@@ -1,0 +1,100 @@
+{
+  "media_name": "Bazzite-Full",
+  "size": "64G",
+  "compression": "fast",
+  "output_iso": "/var/tmp/bazzite-full/bazzite-full.iso",
+  "output_base": "/var/tmp/bazzite-full/.tbx-build",
+  "installer": {
+    "channel": "dev"
+  },
+  "defaults": {
+    "family": "bazzite-kde-nvidia",
+    "image": "ghcr.io/ublue-os/bazzite-nvidia:stable"
+  },
+  "live_environments": [
+    {
+      "id": "bazzite-kde-nvidia",
+      "family": "bazzite-kde-nvidia",
+      "desktop": "kde",
+      "base_image": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+      "image": "localhost/superiso-live-bazzite-full:kde",
+      "modes": ["live"]
+    },
+    {
+      "id": "bazzite-gnome-nvidia",
+      "family": "bazzite-gnome-nvidia",
+      "desktop": "gnome",
+      "base_image": "ghcr.io/ublue-os/bazzite-gnome-nvidia:stable",
+      "image": "localhost/superiso-live-bazzite-full:gnome",
+      "modes": ["live"]
+    },
+    {
+      "id": "bazzite-deck",
+      "family": "bazzite-deck",
+      "desktop": "deck",
+      "base_image": "ghcr.io/ublue-os/bazzite-deck:stable",
+      "image": "localhost/superiso-live-bazzite-full:deck",
+      "modes": ["live"]
+    }
+  ],
+  "images": [
+    {
+      "ref": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+      "name": "Bazzite KDE NVIDIA",
+      "desc": "KDE Plasma, NVIDIA drivers, gaming-focused",
+      "filesystem": "btrfs",
+      "composefs": true,
+      "family": "bazzite-kde-nvidia",
+      "live": true
+    },
+    {
+      "ref": "ghcr.io/ublue-os/bazzite-gnome-nvidia:stable",
+      "name": "Bazzite GNOME NVIDIA",
+      "desc": "GNOME, NVIDIA drivers, gaming-focused",
+      "filesystem": "btrfs",
+      "composefs": true,
+      "family": "bazzite-gnome-nvidia",
+      "live": true
+    },
+    {
+      "ref": "ghcr.io/ublue-os/bazzite-deck:stable",
+      "name": "Bazzite Deck",
+      "desc": "Steam Deck and handheld gaming image",
+      "filesystem": "btrfs",
+      "composefs": true,
+      "family": "bazzite-deck",
+      "live": true
+    },
+    {
+      "ref": "ghcr.io/ublue-os/bazzite:stable",
+      "name": "Bazzite KDE",
+      "desc": "KDE Plasma, AMD/Intel open-source drivers",
+      "filesystem": "btrfs",
+      "composefs": true,
+      "family": "bazzite-kde",
+      "live": false
+    },
+    {
+      "ref": "ghcr.io/ublue-os/bazzite-gnome:stable",
+      "name": "Bazzite GNOME",
+      "desc": "GNOME, AMD/Intel open-source drivers",
+      "filesystem": "btrfs",
+      "composefs": true,
+      "family": "bazzite-gnome",
+      "live": false
+    },
+    {
+      "ref": "ghcr.io/ublue-os/bazzite-deck-gnome:stable",
+      "name": "Bazzite Deck GNOME",
+      "desc": "Steam Deck and handheld gaming image with GNOME",
+      "filesystem": "btrfs",
+      "composefs": true,
+      "family": "bazzite-deck-gnome",
+      "live": false
+    }
+  ],
+  "ci": {
+    "default_install_image": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+    "assert_catalog_local": true
+  }
+}

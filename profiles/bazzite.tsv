@@ -1,0 +1,10 @@
+# Bazzite combined family.  Two live sessions: KDE NVIDIA and GNOME NVIDIA.
+# This is the "two partitions" concept implemented as two bootable live roots
+# on the same ISO, both sharing one deduped offline containers-storage payload.
+# Columns: ref<TAB>name<TAB>desc<TAB>filesystem<TAB>composefs<TAB>family<TAB>live
+ghcr.io/ublue-os/bazzite-nvidia:stable	Bazzite KDE NVIDIA	Gaming KDE, NVIDIA live/install	btrfs	true	bazzite-kde-nvidia	true
+ghcr.io/ublue-os/bazzite-gnome-nvidia:stable	Bazzite GNOME NVIDIA	Gaming GNOME, NVIDIA live/install	btrfs	true	bazzite-gnome-nvidia	true
+ghcr.io/ublue-os/bazzite:stable	Bazzite KDE	Gaming KDE, AMD/Intel	btrfs	true	bazzite-kde	false
+ghcr.io/ublue-os/bazzite-gnome:stable	Bazzite GNOME	Gaming GNOME, AMD/Intel	btrfs	true	bazzite-gnome	false
+ghcr.io/ublue-os/bazzite-deck:stable	Bazzite Deck	Gaming handheld/Steam Deck image	btrfs	true	bazzite-deck	false
+ghcr.io/ublue-os/bazzite-deck-gnome:stable	Bazzite Deck GNOME	Gaming handheld/Steam Deck GNOME image	btrfs	true	bazzite-deck-gnome	false

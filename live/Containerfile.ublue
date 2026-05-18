@@ -15,26 +15,27 @@ ARG FAMILY=unknown
 
 FROM ${BASE_IMAGE} AS image-ref
 
-FROM debian:sid AS initramfs-builder
+# Build the dmsquash-live + tbox-root + ostree initramfs INSIDE the source
+# image. We used to do this in a Debian helper stage for distro-agnosticism,
+# but the ostree dracut module pulls in ostree-prepare-root which has hard
+# library deps (libgio, libcomposefs) that don't exist on Debian. Building
+# in-image is simpler, faster, and avoids cross-distro library juggling —
+# the bootc images we target all have dracut + ostree natively.
+FROM ${BASE_IMAGE} AS initramfs-builder
 
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        dracut \
-        dmsetup \
-        kmod \
-        systemd-boot-efi \
-        zstd \
-    && rm -rf /var/lib/apt/lists/*
+# Install dmsquash-live (provided by dracut-live on Fedora)
+# so dracut can build a live initramfs.
+RUN if command -v dnf >/dev/null; then dnf install -y dracut-live dracut-network; \
+    elif command -v rpm-ostree >/dev/null; then rpm-ostree install dracut-live dracut-network; fi
 
-COPY --from=image-ref /usr/lib/modules /usr/lib/modules
 COPY src/dracut/95superiso-isofile /usr/lib/dracut/modules.d/95superiso-isofile
 COPY src/dracut/95tbox-root /usr/lib/dracut/modules.d/95tbox-root
 
 RUN set -ex; \
     kernel=$(find /usr/lib/modules -maxdepth 2 -name "modules.dep" -print | head -1 | xargs dirname | xargs basename); \
-    echo "Building dmsquash-live initramfs for kernel ${kernel}"; \
+    echo "Building dmsquash-live+tbox-root+ostree initramfs for kernel ${kernel}"; \
     DRACUT_NO_XATTR=1 dracut -v --force --zstd --reproducible --no-hostonly \
-        --add 'dmsquash-live superiso-isofile tbox-root' \
+        --add 'dmsquash-live superiso-isofile tbox-root ostree' \
         --add-drivers 'squashfs overlay loop iso9660 sr_mod cdrom sd_mod usb-storage xhci-pci xhci_hcd virtio_blk virtio_pci virtio_scsi exfat vfat fat ntfs3 ext4 btrfs' \
         /tmp/initramfs.img "${kernel}"; \
     ls -lh /tmp/initramfs.img
@@ -48,7 +49,9 @@ ARG INSTALLER_CHANNEL=stable
 ENV INSTALLER_CHANNEL=${INSTALLER_CHANNEL}
 
 COPY --from=initramfs-builder /tmp/initramfs.img /tmp/initramfs.img
-COPY --from=initramfs-builder /usr/lib/systemd/boot/efi /usr/lib/systemd/boot/efi
+# (We previously also copied /usr/lib/systemd/boot/efi from the Debian
+# builder stage; bluefin doesn't ship those binaries and tacklebox's
+# bootctl install runs from the host anyway. Drop it.)
 RUN set -ex; \
     kernel=$(find /usr/lib/modules -maxdepth 2 -name "modules.dep" -print | head -1 | xargs dirname | xargs basename); \
     mv /tmp/initramfs.img "/usr/lib/modules/${kernel}/initramfs.img"; \

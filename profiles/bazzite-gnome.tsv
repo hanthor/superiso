@@ -1,0 +1,4 @@
+# Bazzite GNOME-only ISO.
+ghcr.io/ublue-os/bazzite-gnome-nvidia:stable	Bazzite GNOME NVIDIA	Gaming GNOME, NVIDIA live/install	btrfs	true	bazzite-gnome-nvidia	true
+ghcr.io/ublue-os/bazzite-gnome:stable	Bazzite GNOME	Gaming GNOME, AMD/Intel	btrfs	true	bazzite-gnome	false
+ghcr.io/ublue-os/bazzite-deck-gnome:stable	Bazzite Deck GNOME	Gaming handheld/Steam Deck GNOME image	btrfs	true	bazzite-deck-gnome	false

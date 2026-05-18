@@ -137,6 +137,10 @@ boot:
         -net nic,model=virtio -net user,hostfwd=tcp::2222-:22 \
         -serial mon:stdio -display none -no-reboot
 
+# Repeatable CI-style end-to-end install test against the Bazzite Full ISO.
+bazzite-full-install-test fisherman_bin:
+    scripts/test-fisherman-install.sh {{bazzite_iso}} {{fisherman_bin}}
+
 clean:
     rm -rf {{output_dir}}/cs-staging {{output_dir}}/live {{output_dir}}/store.sfs \
            {{output_dir}}/superiso-live.iso {{output_dir}}/superiso.img \
@@ -166,6 +170,15 @@ status:
 profile name:
     just payloads=profiles/{{name}}.tsv output_dir=output/{{name}} compression={{compression}} all
 
+# Build from the new single-source profile JSON. Example:
+#   just profile-build profiles/bazzite-full.profile.json
+profile-build profile:
+    scripts/build-profile.sh {{profile}}
+
+# Generate and validate derived artifacts from a single-source profile JSON.
+profile-generate profile:
+    scripts/gen-profile-artifacts.sh {{profile}}
+
 # Build Dakota, Aurora, Bluefin, and Bazzite concurrently, each into its own
 # output/<profile>/ directory by default. Tune concurrency with
 # SUPERISO_PROFILE_JOBS and place large builds elsewhere with
@@ -180,3 +193,85 @@ gold:
 # Smoke-test a built profile ISO in QEMU. Example: just test-profile bluefin
 test-profile name:
     scripts/test-profile.sh {{name}}
+
+# ── Bazzite Full (tacklebox-based) ───────────────────────────────────────────
+bazzite_out := "/var/mnt/data/bazzite-full"
+bazzite_iso := bazzite_out / "bazzite-full.iso"
+
+# Build the Bazzite Full ISO (KDE-NVIDIA + GNOME-NVIDIA + Deck live;
+# all 6 variants in the offline store; bootc-installer pre-installed).
+bazzite-full:
+    scripts/build-bazzite-full.sh {{bazzite_out}}
+
+# Rebuild just the tacklebox recipe step, skipping the podman container builds.
+bazzite-full-iso:
+    SKIP_CONTAINER_BUILD=1 scripts/build-bazzite-full.sh {{bazzite_out}}
+
+# Verify the built ISO.
+bazzite-full-verify:
+    tacklebox/tacklebox verify {{bazzite_iso}}
+
+# Boot the Bazzite Full ISO in QEMU for testing.
+# Requires OVMF. Attach a blank 64 GB target disk for install testing.
+bazzite-full-vm iso=bazzite_iso:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VARS="$(mktemp /tmp/ovmf-vars-XXXXXX.fd)"
+    TARGET="$(mktemp /tmp/bazzite-target-XXXXXX.qcow2)"
+    trap 'rm -f "$VARS" "$TARGET"' EXIT
+    for p in /usr/share/edk2/ovmf/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS_4M.fd; do
+        [[ -f "$p" ]] && { cp "$p" "$VARS"; break; }
+    done
+    for p in /usr/share/edk2/ovmf/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE_4M.fd; do
+        [[ -f "$p" ]] && { OVMF_CODE="$p"; break; }
+    done
+    qemu-img create -f qcow2 "$TARGET" 64G
+    echo ">>> Booting {{iso}}"
+    echo ">>> Target disk: $TARGET (64 GB blank)"
+    echo ">>> SSH: ssh -p 2222 liveuser@localhost (password: live)"
+    sudo /usr/libexec/qemu-kvm \
+        -machine q35 -m 8192 -smp 4 \
+        -accel kvm -cpu host \
+        -drive "if=pflash,format=raw,readonly=on,file=${OVMF_CODE}" \
+        -drive "if=pflash,format=raw,file=${VARS}" \
+        -drive "if=none,id=iso,file={{iso}},media=cdrom,readonly=on,format=raw" \
+        -device virtio-scsi-pci,id=scsi \
+        -device scsi-cd,drive=iso \
+        -drive "if=virtio,format=qcow2,file=${TARGET}" \
+        -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+        -device virtio-net-pci,netdev=net0 \
+        -serial mon:stdio -display none
+
+# Build a multi-boot persistent block image with all Bazzite variants.
+# Each env gets both a live (tmpfs) and persistent (/home survives reboots) BLS entry.
+# Offline install payloads for all 6 variants are baked into tbox-containers.squashfs.
+bazzite-multiboot out="/var/tmp/bazzite-multiboot":
+    mkdir -p {{out}}
+    sudo env "PATH=$PATH" tacklebox/tacklebox build \
+        recipes/bazzite-multiboot.json \
+        --xz \
+        -b {{out}}/.tbx-build
+
+# Boot the multiboot image in QEMU for testing (8 GB RAM, KVM).
+bazzite-multiboot-vm img="/var/tmp/bazzite-multiboot/.tbx-build/tacklebox.img":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VARS="$(mktemp /tmp/ovmf-vars-XXXXXX.fd)"
+    trap 'rm -f "$VARS"' EXIT
+    for p in /usr/share/edk2/ovmf/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS_4M.fd; do
+        [[ -f "$p" ]] && { cp "$p" "$VARS"; break; }
+    done
+    for p in /usr/share/edk2/ovmf/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE_4M.fd; do
+        [[ -f "$p" ]] && { OVMF_CODE="$p"; break; }
+    done
+    echo ">>> Booting {{img}}"
+    echo ">>> SSH: ssh -p 2222 liveuser@localhost (password: live)"
+    sudo /usr/libexec/qemu-kvm \
+        -machine q35 -m 8192 -smp 4 \
+        -accel kvm -cpu host \
+        -drive "if=pflash,format=raw,readonly=on,file=${OVMF_CODE}" \
+        -drive "if=pflash,format=raw,file=${VARS}" \
+        -drive "if=virtio,format=raw,file={{img}}" \
+        -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+        -device virtio-net-pci,netdev=net0 \
+        -serial mon:stdio -display none

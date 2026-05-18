@@ -131,6 +131,7 @@ read -r IMAGE FS COMPOSE FAMILY < <(
     jq -r --arg ref "$DEFAULT_IMAGE" '.images[] | select(.imgref == $ref) | [.imgref, .filesystem, .composefs, .family] | @tsv' "$IMG_JSON" | head -1
 )
 [[ -n "$IMAGE" ]] || { echo "ERROR: default image not found in $IMG_JSON" >&2; exit 1; }
+export CONTAINERS_STORAGE_CONF="${CONTAINERS_STORAGE_CONF:-/etc/containers/storage.conf}"
 
 echo ">>> Verifying local catalog images:"
 jq -r '.images[].imgref' "$IMG_JSON" | while read -r ref; do
@@ -150,7 +151,7 @@ jq -n \
     --arg fs "$FS" \
     --arg hostname "superiso-ci" \
     --argjson compose "$COMPOSE" \
-    '{disk:$disk, filesystem:$fs, image:$image, composeFsBackend:false, selinuxDisabled:true, bootloader:"none", hostname:$hostname, flatpaks:[]}' \
+    '{disk:$disk, filesystem:$fs, image:$image, composeFsBackend:false, selinuxDisabled:true, bootloader:"none", hostname:$hostname, additionalImageStores:["/var/lib/superiso-store"], flatpaks:[]}' \
     > "$RECIPE"
 
 timeout 1800 sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF fisherman "$RECIPE" 2>&1 | tee /tmp/fisherman-install.log

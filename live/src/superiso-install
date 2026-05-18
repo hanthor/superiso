@@ -14,6 +14,7 @@ CFG=/etc/bootc-installer/images.json
 [[ -r "$CFG" ]] || { echo "ERROR: $CFG missing — was this image built by SuperISO?" >&2; exit 1; }
 command -v jq >/dev/null || { echo "ERROR: jq missing" >&2; exit 1; }
 [[ -x /usr/local/bin/fisherman ]] || { echo "ERROR: /usr/local/bin/fisherman missing — bootc-installer Flatpak was not installed" >&2; exit 1; }
+export CONTAINERS_STORAGE_CONF="${CONTAINERS_STORAGE_CONF:-/etc/containers/storage.conf}"
 
 mapfile -t REFS < <(jq -r '.images[] | "\(.imgref)\t\(.name)\t\(.desc)\t\(.filesystem)\t\(.composefs)\t\(.family)"' "$CFG")
 DEFAULT_REF=$(jq -r '.default_image' "$CFG")

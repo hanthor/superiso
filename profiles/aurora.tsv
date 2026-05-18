@@ -1,0 +1,6 @@
+# Aurora family.  NVIDIA Open live; all listed refs are available offline.
+# Columns: ref<TAB>name<TAB>desc<TAB>filesystem<TAB>composefs<TAB>family<TAB>live
+ghcr.io/ublue-os/aurora-nvidia-open:latest	Aurora NVIDIA Open	KDE workstation, NVIDIA Open live/install	btrfs	true	aurora-nvidia-open	true
+ghcr.io/ublue-os/aurora:latest	Aurora	KDE workstation, AMD/Intel	btrfs	true	aurora	false
+ghcr.io/ublue-os/aurora-dx:latest	Aurora DX	KDE developer workstation, AMD/Intel	btrfs	true	aurora-dx	false
+ghcr.io/ublue-os/aurora-dx-nvidia-open:latest	Aurora DX NVIDIA Open	KDE developer workstation, NVIDIA Open	btrfs	true	aurora-dx-nvidia-open	false

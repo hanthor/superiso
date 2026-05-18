@@ -1,0 +1,6 @@
+# Dakota duo: offline payloads deduped into one shared containers-storage.
+# Dakota-NVIDIA is marked live=true as the target live session.  If Dakota's
+# image lacks dnf/dracut-live, it will need a Dakota-specific live transform.
+# Columns: ref<TAB>name<TAB>desc<TAB>filesystem<TAB>composefs<TAB>family<TAB>live
+ghcr.io/projectbluefin/dakota-nvidia:latest	Dakota NVIDIA	Project Bluefin Dakota, NVIDIA live/install	btrfs	true	dakota-nvidia	true
+ghcr.io/projectbluefin/dakota:latest	Dakota	Project Bluefin Dakota, AMD/Intel install	btrfs	true	dakota	false

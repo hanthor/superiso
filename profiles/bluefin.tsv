@@ -1,0 +1,11 @@
+# Bluefin family.  NVIDIA live; all listed refs are available offline.
+# latest=Fedora/current, gts=older stable track.  DX variants include dev tooling.
+# Columns: ref<TAB>name<TAB>desc<TAB>filesystem<TAB>composefs<TAB>family<TAB>live
+ghcr.io/ublue-os/bluefin-nvidia:latest	Bluefin NVIDIA	GNOME workstation, NVIDIA live/install	btrfs	true	bluefin-nvidia	true
+ghcr.io/ublue-os/bluefin:latest	Bluefin	GNOME workstation, AMD/Intel	btrfs	true	bluefin	false
+ghcr.io/ublue-os/bluefin-dx:latest	Bluefin DX	GNOME developer workstation, AMD/Intel	btrfs	true	bluefin-dx	false
+ghcr.io/ublue-os/bluefin-dx-nvidia:latest	Bluefin DX NVIDIA	GNOME developer workstation, NVIDIA	btrfs	true	bluefin-dx-nvidia	false
+ghcr.io/ublue-os/bluefin:gts	Bluefin GTS	GNOME workstation, GTS track	btrfs	true	bluefin-gts	false
+ghcr.io/ublue-os/bluefin-nvidia:gts	Bluefin NVIDIA GTS	GNOME workstation, NVIDIA, GTS track	btrfs	true	bluefin-nvidia-gts	false
+ghcr.io/ublue-os/bluefin-dx:gts	Bluefin DX GTS	GNOME developer workstation, GTS track	btrfs	true	bluefin-dx-gts	false
+ghcr.io/ublue-os/bluefin-dx-nvidia:gts	Bluefin DX NVIDIA GTS	GNOME developer workstation, NVIDIA, GTS track	btrfs	true	bluefin-dx-nvidia-gts	false

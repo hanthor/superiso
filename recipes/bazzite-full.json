@@ -1,0 +1,30 @@
+{
+  "media_name": "Bazzite-Full",
+  "size": "64G",
+  "shared_store": { "format": "ext4" },
+  "bootable_environments": [
+    {
+      "id": "bazzite-kde-nvidia",
+      "image": "localhost/superiso-live-bazzite-full:kde",
+      "modes": ["live"]
+    },
+    {
+      "id": "bazzite-gnome-nvidia",
+      "image": "localhost/superiso-live-bazzite-full:gnome",
+      "modes": ["live"]
+    },
+    {
+      "id": "bazzite-deck",
+      "image": "localhost/superiso-live-bazzite-full:deck",
+      "modes": ["live"]
+    }
+  ],
+  "offline_payloads": [
+    "ghcr.io/ublue-os/bazzite-nvidia:stable",
+    "ghcr.io/ublue-os/bazzite-gnome-nvidia:stable",
+    "ghcr.io/ublue-os/bazzite-deck:stable",
+    "ghcr.io/ublue-os/bazzite:stable",
+    "ghcr.io/ublue-os/bazzite-gnome:stable",
+    "ghcr.io/ublue-os/bazzite-deck-gnome:stable"
+  ]
+}

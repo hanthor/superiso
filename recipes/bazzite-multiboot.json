@@ -1,0 +1,30 @@
+{
+  "media_name": "Bazzite-MultibootPersist",
+  "size": "80G",
+  "shared_store": { "format": "ext4" },
+  "bootable_environments": [
+    {
+      "id": "bazzite-kde-nvidia",
+      "image": "ghcr.io/ublue-os/bazzite-nvidia:stable",
+      "modes": ["live", "persistent"]
+    },
+    {
+      "id": "bazzite-gnome-nvidia",
+      "image": "ghcr.io/ublue-os/bazzite-gnome-nvidia:stable",
+      "modes": ["live", "persistent"]
+    },
+    {
+      "id": "bazzite-deck",
+      "image": "ghcr.io/ublue-os/bazzite-deck:stable",
+      "modes": ["live", "persistent"]
+    }
+  ],
+  "offline_payloads": [
+    "ghcr.io/ublue-os/bazzite-nvidia:stable",
+    "ghcr.io/ublue-os/bazzite-gnome-nvidia:stable",
+    "ghcr.io/ublue-os/bazzite-deck:stable",
+    "ghcr.io/ublue-os/bazzite:stable",
+    "ghcr.io/ublue-os/bazzite-gnome:stable",
+    "ghcr.io/ublue-os/bazzite-deck-gnome:stable"
+  ]
+}
