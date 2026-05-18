@@ -155,9 +155,10 @@ jq -n \
     > "$RECIPE"
 
 # Pre-create storage.conf with additionalimagestore support for bootc container
-STORAGE_CONF="/etc/containers/superiso-bootc-storage.conf"
-if ! [[ -f "$STORAGE_CONF" ]]; then
-    sudo tee "$STORAGE_CONF" > /dev/null <<'EOF'
+# Use /var/tmp since it's available in the live environment and mounted into containers
+STORAGE_CONF="/var/tmp/superiso-bootc-storage.conf"
+echo ">>> Creating storage.conf for bootc container at $STORAGE_CONF:"
+sudo tee "$STORAGE_CONF" > /dev/null <<'EOF'
 [storage]
 driver = "overlay"
 runroot = "/run/containers/storage"
@@ -166,7 +167,7 @@ graphroot = "/var/lib/containers/storage"
 [storage.options]
 additionalimagestores = ["/var/lib/superiso-store"]
 EOF
-fi
+sudo cat "$STORAGE_CONF"
 
 timeout 1800 sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
     env CONTAINERS_STORAGE_CONF="$STORAGE_CONF" \

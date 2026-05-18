@@ -244,10 +244,10 @@ findmnt /mnt/fisherman-target 2>/dev/null || echo "    (not mounted yet)"
 ls -la /mnt/fisherman-target/.fisherman-scratch 2>/dev/null || echo "    (scratch dir not found)"
 
 # Pre-create storage.conf with additionalimagestore support for bootc container
-STORAGE_CONF="/etc/containers/superiso-bootc-storage.conf"
-if ! [[ -f "$STORAGE_CONF" ]]; then
-    echo ">>> Creating storage.conf for bootc container:"
-    sudo tee "$STORAGE_CONF" > /dev/null <<'EOF'
+# Use /var/tmp since it's available in the live environment and mounted into containers
+STORAGE_CONF="/var/tmp/superiso-bootc-storage.conf"
+echo ">>> Creating storage.conf for bootc container at $STORAGE_CONF:"
+sudo tee "$STORAGE_CONF" > /dev/null <<'EOF'
 [storage]
 driver = "overlay"
 runroot = "/run/containers/storage"
@@ -256,7 +256,6 @@ graphroot = "/var/lib/containers/storage"
 [storage.options]
 additionalimagestores = ["/var/lib/superiso-store"]
 EOF
-fi
 sudo cat "$STORAGE_CONF"
 
 # Support both CLI shapes:
