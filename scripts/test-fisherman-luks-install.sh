@@ -189,7 +189,6 @@ read -r IMAGE FS COMPOSE FAMILY < <(
 if [[ -n "${SUPERISO_LUKS_COMPOSEFS}" ]]; then
     COMPOSE="${SUPERISO_LUKS_COMPOSEFS}"
 fi
-export CONTAINERS_STORAGE_CONF="${CONTAINERS_STORAGE_CONF:-/etc/containers/storage.conf}"
 
 echo ">>> Verifying local catalog images"
 jq -r '.images[].imgref' "$IMG_JSON" | while read -r ref; do
@@ -230,11 +229,11 @@ sudo cat /etc/containers/storage.conf
 echo ">>> Guest superiso-store mount:"
 findmnt /var/lib/superiso-store || true
 echo ">>> Fisherman validate preflight:"
-sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
     /usr/local/bin/fisherman validate "$RECIPE" || true
 
 echo ">>> Fisherman backend version:"
-sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
     /usr/local/bin/fisherman version || true
 
 # Support both CLI shapes:
@@ -242,7 +241,7 @@ sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_
 # - legacy fisherman: fisherman install <recipe.json>
 set +e
 timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" \
-    sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+    sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
     /usr/local/bin/fisherman "$RECIPE" > /tmp/fisherman-luks-install.log 2>&1
 FISHERMAN_RC=$?
 set -e
@@ -252,7 +251,7 @@ if [[ "$FISHERMAN_RC" -ne 0 ]]; then
     echo ">>> Fisherman direct recipe mode failed (rc=${FISHERMAN_RC}); retrying legacy install subcommand"
     set +e
     timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" \
-        sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+        sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
         /usr/local/bin/fisherman install "$RECIPE" >> /tmp/fisherman-luks-install.log 2>&1
     FISHERMAN_RC=$?
     set -e
