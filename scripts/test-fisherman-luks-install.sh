@@ -220,6 +220,7 @@ jq -n \
       hostname:$hostname,
       encryption:{type:"luks-passphrase", passphrase:$passphrase},
       additionalImageStores:["/var/lib/superiso-store"],
+      packages:["bootupd"],
       flatpaks:[]
     }' > "$RECIPE"
 
