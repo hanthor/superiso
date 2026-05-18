@@ -60,13 +60,24 @@ jobs:
       SUPERISO_TEST_MEMORY: "8192"
       SUPERISO_TEST_CPUS: "4"
       SUPERISO_LUKS_PASSPHRASE: testpassphrase
-      # composefs install fails on Bazzite's SELinux policy regex in bootc;
-      # keep false until bootc composefs + Bazzite SELinux is fixed upstream.
-      SUPERISO_LUKS_COMPOSEFS: "false"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Determine composefs backend
+        id: composefs
+        run: |
+          # Extract composefs value from profile (first image's composefs setting)
+          # ComposFS backend bypasses bootupd requirement (which blocks ostree systemd-boot installs).
+          # bootc's composefs path uses UKI (Unified Kernel Image) managed by systemd-boot directly,
+          # avoiding the need for bootupd binary entirely.
+          COMPOSEFS=$(jq -r '.images[0].composefs // "false"' "${{ env.PROFILE }}")
+          echo "composefs=${COMPOSEFS}" >> "$GITHUB_OUTPUT"
+          echo "Using composefs backend: ${COMPOSEFS}"
+      
+      - name: Set composefs env var
+        run: echo "SUPERISO_LUKS_COMPOSEFS=${{ steps.composefs.outputs.composefs }}" >> "$GITHUB_ENV"
 
       - name: Ensure screenshots branch exists
         if: always()
