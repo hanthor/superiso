@@ -299,6 +299,9 @@ if [[ "$FISHERMAN_RC" -ne 0 ]]; then
     exit "$FISHERMAN_RC"
 fi
 
+echo ">>> Fisherman installation succeeded (rc=$FISHERMAN_RC)"
+echo ">>> Proceeding with post-install validation"
+
 # Post-install BLS fixup: add rd.luks.uuid= and console= to every BLS entry.
 #
 # For ostree+LUKS: Fisherman correctly sets up LUKS but doesn't inject rd.luks.uuid=
