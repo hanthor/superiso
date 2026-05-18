@@ -301,73 +301,64 @@ fi
 
 # Post-install BLS fixup: add rd.luks.uuid= and console= to every BLS entry.
 #
-# Fisherman correctly sets up the LUKS partition but does not inject
-# rd.luks.uuid= into the BLS entries, so dracut never opens the LUKS
-# container and boot drops to emergency shell.
+# For ostree+LUKS: Fisherman correctly sets up LUKS but doesn't inject rd.luks.uuid=
+# into the BLS entries, so dracut never opens the LUKS container and boot drops to
+# emergency shell. We need to patch the BLS entries.
 #
-# For composefs+LUKS with systemd-boot:
-#   - /dev/vdaX (EFI System partition) → mount to /boot/efi
-#   - /dev/vdaY (crypto_LUKS)          → LUKS root
+# For composefs+LUKS: Uses immutable UKI (Unified Kernel Image) managed by systemd-boot.
+# The kernel and cmdline are embedded in the UKI binary, so BLS patching is not needed
+# and the installation is complete as-is.
 #
-# Boot partition candidates: vfat (EFI), ext4, or xfs (need to be mounted to check)
-# For composefs+LUKS, most partitions are encrypted so we detect by process:
-# 1. Find EFI System partition (vfat) as boot/efi mount
-# 2. Find remaining partitions - largest is typically the root
-BOOT_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '($2 == "vfat" || $2 == "ext4" || $2 == "xfs") { print $1; exit }')
-if [[ -z "$BOOT_PART" ]]; then
-    # Fallback: find EFI partition by PARTTYPE (C12A7328-F81F-11D2-BA4B-00A0C93EC93B)
-    BOOT_PART=$(blkid -t PARTTYPE=C12A7328-F81F-11D2-BA4B-00A0C93EC93B -o device 2>/dev/null | head -1 || true)
-fi
-if [[ -z "$BOOT_PART" ]]; then
-    # Last resort: first partition
-    BOOT_PART=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { print $1; exit }')
-fi
-
-# For LUKS, check with blkid which works on encrypted partitions
-LUKS_PART=$(blkid -t TYPE=crypto_LUKS -o device 2>/dev/null | grep "^${DISK}" | head -1 || true)
-if [[ -z "$LUKS_PART" ]]; then
-    # Fallback: assume largest partition is root (typically 2nd after boot)
-    LUKS_PART=$(lsblk -nrpo NAME,SIZE,TYPE "$DISK" | awk '$3 == "part" && $1 != "'${BOOT_PART}'" { parts[NR]=$1; sizes[NR]=$2 } END { maxsize=0; for(i in sizes) { gsub(/[A-Z]/, "", sizes[i]); if(sizes[i]+0 > maxsize) { maxsize=sizes[i]+0; maxpart=parts[i] } } print maxpart }' || true)
-fi
-LUKS_UUID=""
-if [[ -b "$LUKS_PART" ]]; then
-    LUKS_UUID=$(sudo blkid -s UUID -o value "$LUKS_PART" 2>/dev/null || true)
-fi
-echo ">>> Boot partition: ${BOOT_PART:-unknown}  LUKS partition: ${LUKS_PART:-unknown}  LUKS UUID: ${LUKS_UUID:-unknown}"
-
-# Try to patch BLS entries if boot partition is available
-# For composefs+systemd-boot, entries may be in EFI partition (vfat)
-# Note: For composefs with UKI, BLS patching may not be needed as kernel is in UKI
-if [[ -b "$BOOT_PART" ]]; then
-    TMP=$(mktemp -d)
-    trap 'sudo umount "$TMP" 2>/dev/null || true; rmdir "$TMP" 2>/dev/null || true; rm -f "$RECIPE"' EXIT
-    if sudo mount "$BOOT_PART" "$TMP" 2>/dev/null; then
-        COUNT=0
-        for entry in \
-            "$TMP"/loader/entries/*.conf \
-            "$TMP"/EFI/loader/entries/*.conf \
-            "$TMP"/boot/loader/entries/*.conf; do
-            [[ -f "$entry" ]] || continue
-            if ! grep -q '^options ' "$entry"; then
-                continue
-            fi
-            # Add rd.luks.uuid if missing and we know the LUKS UUID.
-            if [[ -n "$LUKS_UUID" ]] && ! grep -q "rd.luks.uuid=$LUKS_UUID" "$entry"; then
-                sudo sed -i "s|^options .*|& rd.luks.uuid=${LUKS_UUID}|" "$entry"
-            fi
-            # Add serial console if missing.
-            if ! grep -q 'console=ttyS0' "$entry"; then
-                sudo sed -i 's|^options .*|& console=tty0 console=ttyS0|' "$entry"
-            fi
-            COUNT=$((COUNT + 1))
-        done
-        echo ">>> Patched $COUNT BLS entries (rd.luks.uuid + serial console)"
-        sudo cat "$TMP"/loader/entries/*.conf 2>/dev/null || true
-        sudo umount "$TMP"
-    else
-        echo ">>> Warning: Could not mount boot partition (may not have BLS entries or is immutable UKI)"
+if [[ "${COMPOSEFS_OVERRIDE}" == "true" ]]; then
+    echo ">>> ComposFS+LUKS installation uses UKI (immutable kernel) - no BLS patching needed"
+    echo ">>> Installation is complete and ready to boot"
+else
+    echo ">>> OStree+LUKS installation - patching BLS entries for LUKS unlock..."
+    BOOT_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '($2 == "ext4" || $2 == "xfs") { print $1; exit }')
+    if [[ -z "$BOOT_PART" ]]; then
+        # Fallback: second partition by position
+        BOOT_PART=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { parts[++n]=$1 } END { print parts[2] }')
     fi
-    rmdir "$TMP"
+    LUKS_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '$2 == "crypto_LUKS" { print $1; exit }')
+    if [[ -z "$LUKS_PART" ]]; then
+        # Fallback: third partition by position
+        LUKS_PART=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { parts[++n]=$1 } END { print parts[3] }')
+    fi
+    LUKS_UUID=""
+    if [[ -b "$LUKS_PART" ]]; then
+        LUKS_UUID=$(sudo blkid -s UUID -o value "$LUKS_PART" 2>/dev/null || true)
+    fi
+    echo ">>> Boot partition: ${BOOT_PART:-unknown}  LUKS partition: ${LUKS_PART:-unknown}  LUKS UUID: ${LUKS_UUID:-unknown}"
+
+    if [[ -b "$BOOT_PART" ]]; then
+        TMP=$(mktemp -d)
+        trap 'sudo umount "$TMP" 2>/dev/null || true; rmdir "$TMP" 2>/dev/null || true; rm -f "$RECIPE"' EXIT
+        if sudo mount "$BOOT_PART" "$TMP" 2>/dev/null; then
+            COUNT=0
+            for entry in \
+                "$TMP"/loader/entries/*.conf \
+                "$TMP"/EFI/loader/entries/*.conf \
+                "$TMP"/boot/loader/entries/*.conf; do
+                [[ -f "$entry" ]] || continue
+                if ! grep -q '^options ' "$entry"; then
+                    continue
+                fi
+                # Add rd.luks.uuid if missing and we know the LUKS UUID.
+                if [[ -n "$LUKS_UUID" ]] && ! grep -q "rd.luks.uuid=$LUKS_UUID" "$entry"; then
+                    sudo sed -i "s|^options .*|& rd.luks.uuid=${LUKS_UUID}|" "$entry"
+                fi
+                # Add serial console if missing.
+                if ! grep -q 'console=ttyS0' "$entry"; then
+                    sudo sed -i 's|^options .*|& console=tty0 console=ttyS0|' "$entry"
+                fi
+                COUNT=$((COUNT + 1))
+            done
+            echo ">>> Patched $COUNT BLS entries (rd.luks.uuid + serial console)"
+            sudo cat "$TMP"/loader/entries/*.conf 2>/dev/null || true
+            sudo umount "$TMP"
+        fi
+        rmdir "$TMP"
+    fi
 fi
 
 lsblk -f "$DISK"
