@@ -157,6 +157,15 @@ jobs:
           echo "duration=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
           echo "iso_size=$(stat -c%s "$ISO")" >> "$GITHUB_OUTPUT"
 
+      - name: Build fisherman binary
+        run: |
+          git clone --depth 1 --branch dev https://github.com/tuna-os/fisherman "${WORK_DIR}/fisherman-src"
+          (
+            cd "${WORK_DIR}/fisherman-src/fisherman"
+            go build -o "${WORK_DIR}/fisherman-bin" ./cmd/fisherman
+          )
+          "${WORK_DIR}/fisherman-bin" version
+
       - name: Run LUKS E2E
         id: luks_test
         continue-on-error: true
@@ -164,7 +173,7 @@ jobs:
           SUPERISO_TEST_DIR: ${{ env.TEST_DIR }}
         run: |
           START=$(date +%s)
-          scripts/test-fisherman-luks-install.sh "${{ steps.profile.outputs.iso }}"
+          scripts/test-fisherman-luks-install.sh "${{ steps.profile.outputs.iso }}" 3324 "${WORK_DIR}/fisherman-bin"
           echo "duration=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
 
       - name: Convert and publish screenshots
