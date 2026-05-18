@@ -54,7 +54,7 @@ jobs:
 
     env:
       PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile || 'profiles/dakota-dual.profile.json' }}
-      INSTALLER_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.installer_channel || 'dev' }}
+      INSTALLER_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.installer_channel || 'stable' }}
       WORK_DIR: /var/tmp/superiso-luks-e2e/work
       TEST_DIR: /var/tmp/superiso-luks-e2e/test
       SUPERISO_TEST_MEMORY: "8192"
