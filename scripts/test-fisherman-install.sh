@@ -151,7 +151,7 @@ jq -n \
     --arg fs "$FS" \
     --arg hostname "superiso-ci" \
     --argjson compose "$COMPOSE" \
-    '{disk:$disk, filesystem:$fs, image:$image, composeFsBackend:false, selinuxDisabled:true, bootloader:"grub2", hostname:$hostname, additionalImageStores:["/var/lib/superiso-store"], packages:["bootupd"], flatpaks:[]}' \
+    '{disk:$disk, filesystem:$fs, image:$image, composeFsBackend:false, selinuxDisabled:true, bootloader:"grub2", hostname:$hostname, additionalImageStores:["/var/lib/superiso-store"], flatpaks:[]}' \
     > "$RECIPE"
 
 # Pre-create storage.conf with additionalimagestore support for bootc container

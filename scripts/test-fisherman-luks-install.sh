@@ -25,7 +25,7 @@ INSTALLED_MONITOR="${TEST_DIR}/qemu-installed.sock"
 LIVE_SERIAL="${LOG_DIR}/qemu-live-serial.log"
 INSTALLED_SERIAL="${LOG_DIR}/qemu-installed-serial.log"
 PASSPHRASE="${SUPERISO_LUKS_PASSPHRASE:-testpassphrase}"
-BOOTLOADER="${SUPERISO_LUKS_BOOTLOADER:-grub2}"
+BOOTLOADER="${SUPERISO_LUKS_BOOTLOADER:-systemd}"
 COMPOSEFS_OVERRIDE="${SUPERISO_LUKS_COMPOSEFS:-}"
 SELINUX_DISABLED="${SUPERISO_LUKS_SELINUX_DISABLED:-false}"
 
@@ -220,7 +220,6 @@ jq -n \
       hostname:$hostname,
       encryption:{type:"luks-passphrase", passphrase:$passphrase},
       additionalImageStores:["/var/lib/superiso-store"],
-      packages:["bootupd"],
       flatpaks:[]
     }' > "$RECIPE"
 
@@ -237,6 +236,9 @@ sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_
 echo ">>> Fisherman backend version:"
 sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
     /usr/local/bin/fisherman version || true
+
+echo ">>> Ensuring bootupd is available for bootc:"
+sudo dnf install -y bootupd 2>&1 | tail -3 || { echo "bootupd unavailable; continuing anyway"; true; }
 
 echo ">>> Live environment paths:"
 echo "    Target mount: /mnt/fisherman-target"
