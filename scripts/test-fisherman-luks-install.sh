@@ -303,19 +303,59 @@ echo ">>> Fisherman installation succeeded (rc=$FISHERMAN_RC)"
 echo ">>> Proceeding with post-install validation"
 echo ">>> DEBUG: SUPERISO_LUKS_COMPOSEFS='${SUPERISO_LUKS_COMPOSEFS:-<unset>}'"
 
-# Post-install BLS fixup: add rd.luks.uuid= and console= to every BLS entry.
+# Post-install BLS fixup: add console= (and for ostree, rd.luks.uuid=) to every
+# BLS entry so the LUKS passphrase prompt is visible on the serial console.
 #
-# For ostree+LUKS: Fisherman correctly sets up LUKS but doesn't inject rd.luks.uuid=
-# into the BLS entries, so dracut never opens the LUKS container and boot drops to
-# emergency shell. We need to patch the BLS entries.
+# For ostree+LUKS: fisherman does NOT inject rd.luks.uuid= into BLS entries, so
+# dracut never opens the LUKS container and boot drops to an emergency shell.
+# BLS entries live on a dedicated /boot (ext4/xfs) partition.
 #
-# For composefs+LUKS: Uses immutable UKI (Unified Kernel Image) managed by systemd-boot.
-# The kernel and cmdline are embedded in the UKI binary, so BLS patching is not needed
-# and the installation is complete as-is.
+# For composefs+LUKS: fisherman injects rd.luks.name= itself, so we only need to
+# add console=ttyS0.  BLS entries live on the ESP (vfat first partition).
+# (Despite earlier assumptions, composefs+LUKS uses BLS entries, not embedded UKIs.)
 #
+_patch_bls_entries() {
+    local mount_dir="$1" luks_uuid="$2"
+    local count=0
+    for entry in \
+        "$mount_dir"/loader/entries/*.conf \
+        "$mount_dir"/EFI/loader/entries/*.conf \
+        "$mount_dir"/boot/loader/entries/*.conf; do
+        [[ -f "$entry" ]] || continue
+        grep -q '^options ' "$entry" || continue
+        if [[ -n "$luks_uuid" ]] && ! grep -q "rd.luks.uuid=$luks_uuid" "$entry"; then
+            sudo sed -i "s|^options .*|& rd.luks.uuid=${luks_uuid}|" "$entry"
+        fi
+        if ! grep -q 'console=ttyS0' "$entry"; then
+            sudo sed -i 's|^options .*|& console=tty0 console=ttyS0|' "$entry"
+        fi
+        count=$((count + 1))
+    done
+    echo ">>> Patched $count BLS entries"
+    sudo cat "$mount_dir"/loader/entries/*.conf 2>/dev/null || true
+}
+
 if [[ "${SUPERISO_LUKS_COMPOSEFS:-false}" == "true" ]]; then
-    echo ">>> ComposFS+LUKS installation uses UKI (immutable kernel) - no BLS patching needed"
-    echo ">>> Installation is complete and ready to boot"
+    echo ">>> ComposFS+LUKS installation - patching EFI BLS entries for serial console..."
+    # composefs BLS entries are on the ESP (first partition, vfat).
+    EFI_PART=""
+    for _candidate in "${DISK}p1" "${DISK}1"; do
+        [[ -b "$_candidate" ]] && EFI_PART="$_candidate" && break
+    done
+    if [[ -n "$EFI_PART" ]]; then
+        TMP=$(mktemp -d)
+        trap 'sudo umount "$TMP" 2>/dev/null || true; rmdir "$TMP" 2>/dev/null || true; rm -f "$RECIPE"' EXIT
+        if sudo mount -t vfat "$EFI_PART" "$TMP" 2>/dev/null; then
+            # rd.luks.name already injected by fisherman; only add console=.
+            _patch_bls_entries "$TMP" ""
+            sudo umount "$TMP"
+        else
+            echo ">>> WARNING: could not mount EFI partition $EFI_PART as vfat - serial console patch skipped"
+        fi
+        rmdir "$TMP" 2>/dev/null || true
+    else
+        echo ">>> WARNING: no EFI partition found for composefs+LUKS BLS patching"
+    fi
 else
     echo ">>> OStree+LUKS installation - patching BLS entries for LUKS unlock..."
     BOOT_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" 2>/dev/null | awk '($2 == "ext4" || $2 == "xfs") { print $1; exit }' || true)
@@ -338,30 +378,10 @@ else
         TMP=$(mktemp -d)
         trap 'sudo umount "$TMP" 2>/dev/null || true; rmdir "$TMP" 2>/dev/null || true; rm -f "$RECIPE"' EXIT
         if sudo mount "$BOOT_PART" "$TMP" 2>/dev/null; then
-            COUNT=0
-            for entry in \
-                "$TMP"/loader/entries/*.conf \
-                "$TMP"/EFI/loader/entries/*.conf \
-                "$TMP"/boot/loader/entries/*.conf; do
-                [[ -f "$entry" ]] || continue
-                if ! grep -q '^options ' "$entry"; then
-                    continue
-                fi
-                # Add rd.luks.uuid if missing and we know the LUKS UUID.
-                if [[ -n "$LUKS_UUID" ]] && ! grep -q "rd.luks.uuid=$LUKS_UUID" "$entry"; then
-                    sudo sed -i "s|^options .*|& rd.luks.uuid=${LUKS_UUID}|" "$entry"
-                fi
-                # Add serial console if missing.
-                if ! grep -q 'console=ttyS0' "$entry"; then
-                    sudo sed -i 's|^options .*|& console=tty0 console=ttyS0|' "$entry"
-                fi
-                COUNT=$((COUNT + 1))
-            done
-            echo ">>> Patched $COUNT BLS entries (rd.luks.uuid + serial console)"
-            sudo cat "$TMP"/loader/entries/*.conf 2>/dev/null || true
+            _patch_bls_entries "$TMP" "$LUKS_UUID"
             sudo umount "$TMP"
         fi
-        rmdir "$TMP"
+        rmdir "$TMP" 2>/dev/null || true
     fi
 fi
 
@@ -413,14 +433,7 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-# For composefs+UKI: LUKS unlock happens at bootloader/UKI level, no console prompt
-# For ostree+LUKS: LUKS unlock happens in dracut, requires passphrase entry on serial console
-if [[ "${SUPERISO_LUKS_COMPOSEFS:-false}" == "true" ]]; then
-    echo ">>> ComposFS+UKI system - waiting for boot (no LUKS console prompt expected)"
-    python3 "$(dirname "$0")/wait_boot.py" "$INSTALLED_SERIAL"
-else
-    echo ">>> Detecting LUKS prompt and unlocking installed system"
-    sudo python3 "$(dirname "$0")/luks-unlock.py" "$INSTALLED_MONITOR" "$PASSPHRASE" "$INSTALLED_SERIAL" "$LOG_DIR"
-fi
+echo ">>> Detecting LUKS prompt and unlocking installed system"
+sudo python3 "$(dirname "$0")/luks-unlock.py" "$INSTALLED_MONITOR" "$PASSPHRASE" "$INSTALLED_SERIAL" "$LOG_DIR"
 
 echo ">>> LUKS install and boot SUCCESS"
