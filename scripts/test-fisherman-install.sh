@@ -154,7 +154,23 @@ jq -n \
     '{disk:$disk, filesystem:$fs, image:$image, composeFsBackend:false, selinuxDisabled:true, bootloader:"none", hostname:$hostname, additionalImageStores:["/var/lib/superiso-store"], flatpaks:[]}' \
     > "$RECIPE"
 
-timeout 1800 sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF fisherman "$RECIPE" 2>&1 | tee /tmp/fisherman-install.log
+# Pre-create storage.conf with additionalimagestore support for bootc container
+STORAGE_CONF="/etc/containers/superiso-bootc-storage.conf"
+if ! [[ -f "$STORAGE_CONF" ]]; then
+    sudo tee "$STORAGE_CONF" > /dev/null <<'EOF'
+[storage]
+driver = "overlay"
+runroot = "/run/containers/storage"
+graphroot = "/var/lib/containers/storage"
+
+[storage.options]
+additionalimagestores = ["/var/lib/superiso-store"]
+EOF
+fi
+
+timeout 1800 sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
+    env CONTAINERS_STORAGE_CONF="$STORAGE_CONF" \
+    fisherman "$RECIPE" 2>&1 | tee /tmp/fisherman-install.log
 
 PART_COUNT=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { count++ } END { print count + 0 }')
 if (( PART_COUNT < 2 )); then

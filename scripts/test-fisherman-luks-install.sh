@@ -237,12 +237,35 @@ echo ">>> Fisherman backend version:"
 sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
     /usr/local/bin/fisherman version || true
 
+echo ">>> Live environment paths:"
+echo "    Target mount: /mnt/fisherman-target"
+echo "    Scratch dir: /mnt/fisherman-target/.fisherman-scratch"
+findmnt /mnt/fisherman-target 2>/dev/null || echo "    (not mounted yet)"
+ls -la /mnt/fisherman-target/.fisherman-scratch 2>/dev/null || echo "    (scratch dir not found)"
+
+# Pre-create storage.conf with additionalimagestore support for bootc container
+STORAGE_CONF="/etc/containers/superiso-bootc-storage.conf"
+if ! [[ -f "$STORAGE_CONF" ]]; then
+    echo ">>> Creating storage.conf for bootc container:"
+    sudo tee "$STORAGE_CONF" > /dev/null <<'EOF'
+[storage]
+driver = "overlay"
+runroot = "/run/containers/storage"
+graphroot = "/var/lib/containers/storage"
+
+[storage.options]
+additionalimagestores = ["/var/lib/superiso-store"]
+EOF
+fi
+sudo cat "$STORAGE_CONF"
+
 # Support both CLI shapes:
 # - newer fisherman: fisherman <recipe.json>
 # - legacy fisherman: fisherman install <recipe.json>
 set +e
 timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" \
-    sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
+    sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+    env CONTAINERS_STORAGE_CONF="$STORAGE_CONF" \
     /usr/local/bin/fisherman "$RECIPE" > /tmp/fisherman-luks-install.log 2>&1
 FISHERMAN_RC=$?
 set -e
@@ -252,7 +275,8 @@ if [[ "$FISHERMAN_RC" -ne 0 ]]; then
     echo ">>> Fisherman direct recipe mode failed (rc=${FISHERMAN_RC}); retrying legacy install subcommand"
     set +e
     timeout "${SUPERISO_LUKS_INSTALL_TIMEOUT:-2400}" \
-        sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS \
+        sudo --preserve-env=PATH,HOME,TMPDIR,XDG_RUNTIME_DIR,XDG_DATA_HOME,DBUS_SESSION_BUS_ADDRESS,CONTAINERS_STORAGE_CONF \
+        env CONTAINERS_STORAGE_CONF="$STORAGE_CONF" \
         /usr/local/bin/fisherman install "$RECIPE" >> /tmp/fisherman-luks-install.log 2>&1
     FISHERMAN_RC=$?
     set -e
