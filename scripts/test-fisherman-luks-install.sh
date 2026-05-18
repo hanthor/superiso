@@ -309,17 +309,25 @@ fi
 #   - /dev/vdaX (EFI System partition) → mount to /boot/efi
 #   - /dev/vdaY (crypto_LUKS)          → LUKS root
 #
-# Boot partition candidates: vfat (EFI), ext4, or xfs
-# LUKS partition: crypto_LUKS filesystem type
+# Boot partition candidates: vfat (EFI), ext4, or xfs (need to be mounted to check)
+# For composefs+LUKS, most partitions are encrypted so we detect by process:
+# 1. Find EFI System partition (vfat) as boot/efi mount
+# 2. Find remaining partitions - largest is typically the root
 BOOT_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '($2 == "vfat" || $2 == "ext4" || $2 == "xfs") { print $1; exit }')
 if [[ -z "$BOOT_PART" ]]; then
-    # Fallback: first partition (likely EFI)
+    # Fallback: find EFI partition by PARTTYPE (C12A7328-F81F-11D2-BA4B-00A0C93EC93B)
+    BOOT_PART=$(blkid -t PARTTYPE=C12A7328-F81F-11D2-BA4B-00A0C93EC93B -o device 2>/dev/null | head -1 || true)
+fi
+if [[ -z "$BOOT_PART" ]]; then
+    # Last resort: first partition
     BOOT_PART=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { print $1; exit }')
 fi
-LUKS_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '$2 == "crypto_LUKS" { print $1; exit }')
+
+# For LUKS, check with blkid which works on encrypted partitions
+LUKS_PART=$(blkid -t TYPE=crypto_LUKS -o device 2>/dev/null | grep "^${DISK}" | head -1 || true)
 if [[ -z "$LUKS_PART" ]]; then
-    # Fallback: find the encrypted partition
-    LUKS_PART=$(blkid -t TYPE=crypto_LUKS -o device 2>/dev/null | head -1 || true)
+    # Fallback: assume largest partition is root (typically 2nd after boot)
+    LUKS_PART=$(lsblk -nrpo NAME,SIZE,TYPE "$DISK" | awk '$3 == "part" && $1 != "'${BOOT_PART}'" { parts[NR]=$1; sizes[NR]=$2 } END { maxsize=0; for(i in sizes) { gsub(/[A-Z]/, "", sizes[i]); if(sizes[i]+0 > maxsize) { maxsize=sizes[i]+0; maxpart=parts[i] } } print maxpart }' || true)
 fi
 LUKS_UUID=""
 if [[ -b "$LUKS_PART" ]]; then
