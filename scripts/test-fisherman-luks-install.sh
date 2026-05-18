@@ -314,15 +314,15 @@ if [[ "${SUPERISO_LUKS_COMPOSEFS}" == "true" ]]; then
     echo ">>> Installation is complete and ready to boot"
 else
     echo ">>> OStree+LUKS installation - patching BLS entries for LUKS unlock..."
-    BOOT_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '($2 == "ext4" || $2 == "xfs") { print $1; exit }')
+    BOOT_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" 2>/dev/null | awk '($2 == "ext4" || $2 == "xfs") { print $1; exit }' || true)
     if [[ -z "$BOOT_PART" ]]; then
         # Fallback: second partition by position
-        BOOT_PART=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { parts[++n]=$1 } END { print parts[2] }')
+        BOOT_PART=$(lsblk -nrpo NAME,TYPE "$DISK" 2>/dev/null | awk '$2 == "part" { parts[++n]=$1 } END { print parts[2] }' || true)
     fi
-    LUKS_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" | awk '$2 == "crypto_LUKS" { print $1; exit }')
+    LUKS_PART=$(lsblk -nrpo NAME,FSTYPE "$DISK" 2>/dev/null | awk '$2 == "crypto_LUKS" { print $1; exit }' || true)
     if [[ -z "$LUKS_PART" ]]; then
         # Fallback: third partition by position
-        LUKS_PART=$(lsblk -nrpo NAME,TYPE "$DISK" | awk '$2 == "part" { parts[++n]=$1 } END { print parts[3] }')
+        LUKS_PART=$(lsblk -nrpo NAME,TYPE "$DISK" 2>/dev/null | awk '$2 == "part" { parts[++n]=$1 } END { print parts[3] }' || true)
     fi
     LUKS_UUID=""
     if [[ -b "$LUKS_PART" ]]; then
@@ -361,7 +361,7 @@ else
     fi
 fi
 
-lsblk -f "$DISK"
+lsblk -f "$DISK" 2>/dev/null || true
 REMOTE
 install_result=$?
 set -e
