@@ -301,6 +301,7 @@ fi
 
 echo ">>> Fisherman installation succeeded (rc=$FISHERMAN_RC)"
 echo ">>> Proceeding with post-install validation"
+echo ">>> DEBUG: SUPERISO_LUKS_COMPOSEFS='${SUPERISO_LUKS_COMPOSEFS:-<unset>}'"
 
 # Post-install BLS fixup: add rd.luks.uuid= and console= to every BLS entry.
 #
