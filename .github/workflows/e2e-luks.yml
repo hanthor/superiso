@@ -5,381 +5,133 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/e2e-luks.yml"
-      - "live/**"
       - "profiles/**"
       - "scripts/**"
-      - "tacklebox/**"
   workflow_dispatch:
     inputs:
       profile:
         description: "Profile JSON to build and test"
         required: true
         default: "profiles/dakota-dual.profile.json"
-      installer_channel:
-        description: "bootc-installer Flatpak channel"
-        required: true
-        default: "dev"
-        type: choice
-        options:
-          - dev
-          - stable
-      runner:
-        description: "Runner label with KVM and enough disk"
-        required: true
-        default: "ubuntu-24.04"
-      create_issue_on_failure:
-        description: "Create/update an issue when non-PR E2E fails"
-        required: true
+      skip_upload:
+        description: "Build ISO but skip uploading (dry run)"
+        required: false
         default: true
         type: boolean
   schedule:
     - cron: "0 5 * * 1"
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  packages: read
-  actions: read
-
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && format('luks-e2e-manual-{0}', github.run_id) || format('luks-e2e-{0}', github.ref) }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  group: e2e-luks
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  luks-e2e:
-    name: LUKS E2E
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'ubuntu-24.04' }}
-    timeout-minutes: 350
-
-    env:
-      PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile || 'profiles/dakota-dual.profile.json' }}
-      INSTALLER_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.installer_channel || 'dev' }}
-      WORK_DIR: /var/tmp/superiso-luks-e2e/work
-      TEST_DIR: /var/tmp/superiso-luks-e2e/test
-      SUPERISO_TEST_MEMORY: "8192"
-      SUPERISO_TEST_CPUS: "4"
-      SUPERISO_LUKS_PASSPHRASE: testpassphrase
-
+  build-iso:
+    name: Build & Verify ISO
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
     steps:
-      - name: Checkout
+      - name: Checkout superiso
         uses: actions/checkout@v4
 
-      - name: Determine composefs backend
-        id: composefs
-        run: |
-          # Extract composefs value from profile (first image's composefs setting)
-          # ComposFS backend bypasses bootupd requirement (which blocks ostree systemd-boot installs).
-          # bootc's composefs path uses UKI (Unified Kernel Image) managed by systemd-boot directly,
-          # avoiding the need for bootupd binary entirely.
-          COMPOSEFS=$(jq -r '.images[0].composefs // "false"' "${{ env.PROFILE }}")
-          echo "composefs=${COMPOSEFS}" >> "$GITHUB_OUTPUT"
-          echo "Using composefs backend: ${COMPOSEFS}"
-      
-      - name: Set composefs env var
-        run: echo "SUPERISO_LUKS_COMPOSEFS=${{ steps.composefs.outputs.composefs }}" >> "$GITHUB_ENV"
+      - name: Checkout tacklebox
+        uses: actions/checkout@v4
+        with:
+          repository: tuna-os/tacklebox
+          path: tacklebox-src
 
-      - name: Ensure screenshots branch exists
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          if gh api "/repos/${REPO}/git/refs/heads/ci-screenshots" >/dev/null 2>&1; then
-            echo "ci-screenshots branch already exists"
-          else
-            DEFAULT=$(gh api "/repos/${REPO}" --jq '.default_branch')
-            SHA=$(gh api "/repos/${REPO}/git/refs/heads/${DEFAULT}" --jq '.object.sha')
-            gh api --method POST "/repos/${REPO}/git/refs" \
-              -f "ref=refs/heads/ci-screenshots" \
-              -f "sha=${SHA}"
-          fi
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tacklebox-src/go.mod
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
         with:
-          tool-cache: true
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
 
-      - name: Install dependencies
+      - name: Install build deps
         run: |
-          sudo apt-get update -qq
-          BOOT_PKG=""
-          for pkg in systemd-boot-efi systemd-boot-unsigned systemd-boot; do
-            if apt-cache show "$pkg" >/dev/null 2>&1; then
-              BOOT_PKG="$pkg"
-              break
-            fi
-          done
-          if [[ -z "$BOOT_PKG" ]]; then
-            echo "::error::No systemd-boot package available on this runner"
-            exit 1
-          fi
-          sudo apt-get install -y -qq \
-            podman buildah skopeo jq mtools xorriso squashfs-tools erofs-utils "$BOOT_PKG" \
-            qemu-system-x86 qemu-utils ovmf socat sshpass imagemagick
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xorriso mtools squashfs-tools dosfstools \
+            systemd-boot systemd-boot-efi podman rclone dracut-live cryptsetup
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Build tacklebox
+        run: |
+          cd tacklebox-src
+          go build -o /usr/local/bin/tacklebox ./cmd/tacklebox
+          tacklebox --version || echo "tacklebox built successfully"
+
+      - name: Prepare output directories
+        run: |
+          sudo install -d -o "$(id -u)" -g "$(id -g)" /var/tmp/tbx
+          sudo install -d -o "$(id -u)" -g "$(id -g)" /mnt/iso-out
+
+      - name: Restore build caches
+        uses: actions/cache@v4
         with:
-          go-version: "1.26.3"
+          path: |
+            /var/tmp/tbx/initramfs-cache
+            /var/tmp/tbx/squashfs-cache
+          key: superiso-cache-${{ github.run_id }}
+          restore-keys: |
+            superiso-cache-
 
-      - name: Log in to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
-            podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      - name: Configure podman storage
-        run: |
-          podman system reset -f || true
-          mkdir -p /var/tmp/containers-storage /var/tmp/containers-run ~/.config/containers
-          cat > ~/.config/containers/storage.conf <<'CONF'
-          [storage]
-          driver = "overlay"
-          graphroot = "/var/tmp/containers-storage"
-          runroot = "/var/tmp/containers-run"
-          CONF
-          podman info --format 'Driver={{.Store.GraphDriverName}} GraphRoot={{.Store.GraphRoot}}'
-          df -h / /var/tmp
-          test -e /dev/kvm || { echo "::error::/dev/kvm is not available on this runner"; exit 1; }
-
-      - name: Prepare profile
+      - name: Select profile
         id: profile
         run: |
-          mkdir -p "$WORK_DIR" "$TEST_DIR"
-          PROFILE_UNDER_TEST="${WORK_DIR}/profile-under-test.json"
-          ISO="${WORK_DIR}/superiso-luks-e2e.iso"
-          OUTPUT_BASE="${WORK_DIR}/.tbx-build"
-          jq \
-            --arg channel "$INSTALLER_CHANNEL" \
-            --arg iso "$ISO" \
-            --arg output_base "$OUTPUT_BASE" \
-            '.installer.channel = $channel | .output_iso = $iso | .output_base = $output_base' \
-            "$PROFILE" > "$PROFILE_UNDER_TEST"
-          echo "profile=${PROFILE_UNDER_TEST}" >> "$GITHUB_OUTPUT"
-          echo "iso=${ISO}" >> "$GITHUB_OUTPUT"
+          PROFILE="${{ inputs.profile || 'profiles/dakota-dual.profile.json' }}"
+          echo "path=$PROFILE" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename $PROFILE .profile.json)" >> "$GITHUB_OUTPUT"
 
-      - name: Build ISO
-        id: build
+      - name: Pre-pull container images
         run: |
-          START=$(date +%s)
-          scripts/build-profile.sh "${{ steps.profile.outputs.profile }}" "$WORK_DIR"
-          ISO="${{ steps.profile.outputs.iso }}"
-          echo "duration=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
-          echo "iso_size=$(stat -c%s "$ISO")" >> "$GITHUB_OUTPUT"
+          jq -r '(.live_environments[]?.base_image // empty), (.images[]?.ref // empty)' \
+            "${{ steps.profile.outputs.path }}" | sort -u | \
+            xargs -P4 -I{} sudo podman pull {}
 
-      - name: Build fisherman binary
+      - name: Build ISO with tacklebox
         run: |
-          git clone --depth 1 --branch dev https://github.com/tuna-os/fisherman "${WORK_DIR}/fisherman-src"
-          (
-            cd "${WORK_DIR}/fisherman-src/fisherman"
-            go build -o "${WORK_DIR}/fisherman-bin" ./cmd/fisherman
-          )
-          "${WORK_DIR}/fisherman-bin" version
+          sudo tacklebox build "${{ steps.profile.outputs.path }}" \
+            --iso "/mnt/iso-out/${{ steps.profile.outputs.name }}.iso" \
+            -b /var/tmp/tbx
 
-      - name: Run LUKS E2E
-        id: luks_test
-        continue-on-error: true
-        env:
-          SUPERISO_TEST_DIR: ${{ env.TEST_DIR }}
+      - name: Verify ISO
         run: |
-          START=$(date +%s)
-          scripts/test-fisherman-luks-install.sh "${{ steps.profile.outputs.iso }}" 3324 "${WORK_DIR}/fisherman-bin"
-          echo "duration=$(( $(date +%s) - START ))" >> "$GITHUB_OUTPUT"
+          sudo tacklebox verify "/mnt/iso-out/${{ steps.profile.outputs.name }}.iso"
 
-      - name: Convert and publish screenshots
+      - name: Checksums
+        run: |
+          cd /mnt/iso-out
+          sha256sum *.iso > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload ISO artifact
         if: always()
-        continue-on-error: true
-        id: screenshots
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          sudo chmod -R a+rX "$TEST_DIR/logs" 2>/dev/null || true
-
-          commit_png() {
-            local src_ppm="$1" label="$2" out_var="$3"
-            [[ -f "$src_ppm" ]] || return 0
-            local png="${TEST_DIR}/${label}.png"
-            convert "$src_ppm" "$png" 2>/dev/null || return 0
-
-            local path_in_repo="luks-e2e/${RUN_ID}/${label}.png"
-            local existing_sha
-            existing_sha=$(gh api "/repos/${REPO}/contents/${path_in_repo}?ref=ci-screenshots" --jq '.sha' 2>/dev/null || echo "")
-
-            local content
-            content=$(base64 -w0 "$png")
-            jq -n \
-              --arg msg "LUKS E2E screenshot: ${label} (run ${RUN_ID})" \
-              --arg content "$content" \
-              --arg branch "ci-screenshots" \
-              --arg sha "$existing_sha" \
-              'if $sha != "" then
-                {message:$msg, content:$content, branch:$branch, sha:$sha}
-              else
-                {message:$msg, content:$content, branch:$branch}
-              end' | gh api --method PUT "/repos/${REPO}/contents/${path_in_repo}" --input - >/dev/null
-
-            local url="https://raw.githubusercontent.com/${REPO}/ci-screenshots/${path_in_repo}"
-            echo "${out_var}=${url}" >> "$GITHUB_OUTPUT"
-          }
-
-          commit_png "$TEST_DIR/logs/luks-screenshot-live.ppm" "live-boot" "live_url"
-          commit_png "$TEST_DIR/logs/luks-screenshot-plymouth.ppm" "plymouth" "plymouth_url"
-          commit_png "$TEST_DIR/logs/luks-screenshot-final.ppm" "final-boot" "final_url"
-
-      - name: Post PR comment
-        if: always() && github.event_name == 'pull_request'
-        continue-on-error: true
-        uses: actions/github-script@v7
-        env:
-          LIVE_URL: ${{ steps.screenshots.outputs.live_url }}
-          PLYMOUTH_URL: ${{ steps.screenshots.outputs.plymouth_url }}
-          FINAL_URL: ${{ steps.screenshots.outputs.final_url }}
-          BUILD_S: ${{ steps.build.outputs.duration }}
-          LUKS_S: ${{ steps.luks_test.outputs.duration }}
-          ISO_BYTES: ${{ steps.build.outputs.iso_size }}
-          TEST_RESULT: ${{ steps.luks_test.outcome }}
-          INSTALLER_CHANNEL: ${{ env.INSTALLER_CHANNEL }}
-          PROFILE: ${{ env.PROFILE }}
-        with:
-          script: |
-            const result = process.env.TEST_RESULT || 'unknown';
-            const pass = result === 'success';
-            const icon = pass ? '✅' : '❌';
-            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const fmtDur = s => s ? `${Math.floor(Number(s) / 60)}m ${Number(s) % 60}s` : 'N/A';
-            const fmtMiB = b => b ? `${(Number(b) / 1024 / 1024).toFixed(0)} MiB` : 'N/A';
-            const img = (url, alt) => url ? `**${alt}**\n![${alt}](${url})\n` : '';
-
-            const body = [
-              `## ${icon} SuperISO LUKS E2E — ${pass ? 'PASSED' : 'FAILED'}`,
-              '',
-              '| Field | Value |',
-              '|---|---|',
-              `| Profile | \`${process.env.PROFILE}\` |`,
-              `| Installer channel | \`${process.env.INSTALLER_CHANNEL}\` |`,
-              `| ISO build | ${fmtMiB(process.env.ISO_BYTES)} · ${fmtDur(process.env.BUILD_S)} |`,
-              `| LUKS E2E | ${fmtDur(process.env.LUKS_S)} |`,
-              `| Result | ${icon} ${result} |`,
-              '',
-              img(process.env.LIVE_URL, 'Live boot'),
-              img(process.env.PLYMOUTH_URL, 'Plymouth passphrase prompt'),
-              img(process.env.FINAL_URL, 'Installed system after unlock'),
-              `<sub>[Workflow run](${runUrl})</sub>`,
-            ].join('\n');
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body,
-            });
-
-      - name: Create or update failure issue
-        if: >-
-          always() &&
-          steps.luks_test.outcome == 'failure' &&
-          github.event_name != 'pull_request' &&
-          (github.event_name != 'workflow_dispatch' || inputs.create_issue_on_failure)
-        continue-on-error: true
-        uses: actions/github-script@v7
-        env:
-          LIVE_URL: ${{ steps.screenshots.outputs.live_url }}
-          PLYMOUTH_URL: ${{ steps.screenshots.outputs.plymouth_url }}
-          FINAL_URL: ${{ steps.screenshots.outputs.final_url }}
-          PROFILE: ${{ env.PROFILE }}
-          INSTALLER_CHANNEL: ${{ env.INSTALLER_CHANNEL }}
-        with:
-          script: |
-            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const title = `SuperISO LUKS E2E failed: ${process.env.PROFILE} (${process.env.INSTALLER_CHANNEL})`;
-            const marker = '<!-- superiso-luks-e2e-failure -->';
-            const img = (url, alt) => url ? `\n**${alt}**\n![${alt}](${url})\n` : '';
-            const body = [
-              marker,
-              `The SuperISO LUKS end-to-end workflow failed.`,
-              '',
-              `- Profile: \`${process.env.PROFILE}\``,
-              `- Installer channel: \`${process.env.INSTALLER_CHANNEL}\``,
-              `- Run: ${runUrl}`,
-              img(process.env.LIVE_URL, 'Live boot'),
-              img(process.env.PLYMOUTH_URL, 'Plymouth passphrase prompt'),
-              img(process.env.FINAL_URL, 'Installed system after unlock'),
-            ].join('\n');
-
-            for (const label of ['ci', 'luks-e2e']) {
-              try {
-                await github.rest.issues.createLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: label,
-                  color: label === 'ci' ? '0366d6' : '5319e7',
-                });
-              } catch (error) {
-                if (error.status !== 422) throw error;
-              }
-            }
-
-            const {data: issues} = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'ci,luks-e2e',
-              per_page: 20,
-            });
-            const existing = issues.find(issue => issue.title === title);
-            if (existing) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: existing.number,
-                body,
-              });
-            } else {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body,
-                labels: ['ci', 'luks-e2e'],
-              });
-            }
-
-      - name: Write job summary
-        if: always()
-        run: |
-          RESULT="${{ steps.luks_test.outcome }}"
-          ICON="$( [ "$RESULT" = "success" ] && echo "✅" || echo "❌" )"
-          {
-            echo "## ${ICON} SuperISO LUKS E2E — ${RESULT}"
-            echo ""
-            echo "| Field | Value |"
-            echo "|---|---|"
-            echo "| Profile | \`${PROFILE}\` |"
-            echo "| Installer channel | \`${INSTALLER_CHANNEL}\` |"
-            echo "| ISO size | $(numfmt --to=iec "${{ steps.build.outputs.iso_size }}" 2>/dev/null || echo N/A) |"
-            echo "| Build time | ${{ steps.build.outputs.duration }}s |"
-            echo "| LUKS test time | ${{ steps.luks_test.outputs.duration }}s |"
-            echo "| Screenshots branch | \`ci-screenshots\` |"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload E2E logs
-        if: always()
-        continue-on-error: true
-        timeout-minutes: 3
         uses: actions/upload-artifact@v4
         with:
-          name: luks-e2e-logs
-          path: |
-            ${{ env.TEST_DIR }}/logs/**
-            ${{ env.WORK_DIR }}/*.json
-          if-no-files-found: warn
-          retention-days: 14
+          name: "${{ steps.profile.outputs.name }}-iso"
+          path: /mnt/iso-out/*.iso
+          retention-days: 7
+          if-no-files-found: ignore
 
-      - name: Fail if LUKS E2E failed
-        if: steps.luks_test.outcome == 'failure'
+      - name: Build summary
+        if: always()
         run: |
-          echo "::error::LUKS end-to-end test failed; see screenshots and logs"
-          exit 1
+          echo '## ISO Build Results' >> "$GITHUB_STEP_SUMMARY"
+          echo "Profile: \`${{ steps.profile.outputs.path }}\`" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh /mnt/iso-out/*.iso 2>/dev/null | awk '{print "- `" $NF "` (" $5 ")"}' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f /mnt/iso-out/SHA256SUMS ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat /mnt/iso-out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
