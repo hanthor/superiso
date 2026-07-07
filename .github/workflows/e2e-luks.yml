@@ -95,7 +95,7 @@ jobs:
 
       - name: Pre-pull container images
         run: |
-          jq -r '(.live_environments[]?.base_image // empty), (.images[]?.ref // empty)' \
+          jq -r '.bootable_environments[].image' \
             "${{ steps.profile.outputs.path }}" | sort -u | \
             xargs -P4 -I{} sudo podman pull {}
 
